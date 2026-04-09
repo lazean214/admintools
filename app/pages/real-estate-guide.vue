@@ -1,4 +1,26 @@
 <script setup lang="ts">
+type GuideArticle = {
+  id: string
+  title: string
+  slug: string
+  excerpt: string
+  coverImage: string
+  hashtags: string[]
+  markdown: string
+  createdAt?: string
+  updatedAt: string
+}
+
+const { data: prefetchedArticles } = await useAsyncData<GuideArticle[]>(
+  'guide-articles-prefetch',
+  () => $fetch('/api/guide-articles' as string),
+  {
+    server: true,
+    lazy: false,
+    default: () => []
+  }
+)
+
 useSeoMeta({
   title: 'Real Estate Guide',
   description: 'Create and manage real estate admin guide articles with markdown and uploaded images.',
@@ -17,7 +39,7 @@ useSeoMeta({
         <h1 class="module-title text-3xl font-bold text-slate-900">Real Estate Guide</h1>
         <NuxtLink to="/" class="btn-secondary">Back Home</NuxtLink>
       </div>
-      <WikiPageModule />
+      <WikiPageModule :initial-articles="prefetchedArticles || []" />
     </div>
   </div>
 </template>

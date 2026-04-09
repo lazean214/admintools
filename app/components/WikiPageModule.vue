@@ -29,6 +29,10 @@ interface ToastMessage {
   text: string
 }
 
+const props = defineProps<{
+  initialArticles?: GuideArticle[]
+}>()
+
 const auth = useAuth()
 const articles = ref<GuideArticle[]>([])
 const search = ref('')
@@ -175,6 +179,19 @@ watch(
 
 onMounted(() => {
   void auth.hydrate()
+  if (props.initialArticles && props.initialArticles.length > 0) {
+    articles.value = props.initialArticles
+      .map(sanitizeArticle)
+      .filter((article): article is GuideArticle => article !== null)
+
+    const firstArticle = articles.value[0]
+    if (firstArticle) {
+      openArticle(firstArticle.id)
+      setStatus(`Loaded ${articles.value.length} prefetched article${articles.value.length > 1 ? 's' : ''}.`)
+      return
+    }
+  }
+
   loadArticles()
 })
 
