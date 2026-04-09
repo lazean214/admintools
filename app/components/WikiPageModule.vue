@@ -35,6 +35,8 @@ const props = defineProps<{
 
 const auth = useAuth()
 const articles = ref<GuideArticle[]>([])
+const sharedArticles = useState<GuideArticle[]>('guide-articles-client-cache', () => [])
+const hasLoadedArticles = useState<boolean>('guide-articles-client-loaded', () => false)
 const search = ref('')
 const status = ref('Ready')
 const selectedArticleId = ref('')
@@ -179,10 +181,27 @@ watch(
 
 onMounted(() => {
   void auth.hydrate()
+
+  if (sharedArticles.value.length > 0) {
+    articles.value = sharedArticles.value
+      .map(sanitizeArticle)
+      .filter((article): article is GuideArticle => article !== null)
+
+    const firstArticle = articles.value[0]
+    if (firstArticle) {
+      openArticle(firstArticle.id)
+      setStatus(`Loaded ${articles.value.length} cached article${articles.value.length > 1 ? 's' : ''}.`)
+      return
+    }
+  }
+
   if (props.initialArticles && props.initialArticles.length > 0) {
     articles.value = props.initialArticles
       .map(sanitizeArticle)
       .filter((article): article is GuideArticle => article !== null)
+
+    sharedArticles.value = articles.value.map((article) => articleForEditor(article))
+    hasLoadedArticles.value = true
 
     const firstArticle = articles.value[0]
     if (firstArticle) {
@@ -190,6 +209,14 @@ onMounted(() => {
       setStatus(`Loaded ${articles.value.length} prefetched article${articles.value.length > 1 ? 's' : ''}.`)
       return
     }
+  }
+
+  if (hasLoadedArticles.value) {
+    selectedArticleId.value = ''
+    activeMode.value = 'view'
+    editor.value = defaultArticle()
+    setStatus('No guide articles yet. Click Create to start.')
+    return
   }
 
   loadArticles()
@@ -342,6 +369,16 @@ function sanitizeArticle(value: unknown): GuideArticle | null {
 }
 
 async function loadArticles() {
+  if (hasLoadedArticles.value && sharedArticles.value.length > 0) {
+    articles.value = sharedArticles.value.map((article) => articleForEditor(article))
+    const firstArticle = articles.value[0]
+    if (firstArticle) {
+      openArticle(firstArticle.id)
+    }
+    setStatus(`Loaded ${articles.value.length} cached article${articles.value.length > 1 ? 's' : ''}.`)
+    return
+  }
+
   isBusy.value = true
   isLoadingArticles.value = true
   setStatus('Loading guide articles...')
@@ -350,6 +387,9 @@ async function loadArticles() {
     articles.value = Array.isArray(list)
       ? list.map(sanitizeArticle).filter((article): article is GuideArticle => article !== null)
       : []
+
+    sharedArticles.value = articles.value.map((article) => articleForEditor(article))
+    hasLoadedArticles.value = true
 
     const firstArticle = articles.value[0]
     if (firstArticle) {
@@ -363,11 +403,20 @@ async function loadArticles() {
     setStatus('No guide articles yet. Click Create to start.')
   } catch (error) {
     console.error(error)
-    articles.value = []
-    selectedArticleId.value = ''
-    activeMode.value = 'view'
-    editor.value = defaultArticle()
-    setStatus('Could not load saved guide articles.')
+    if (sharedArticles.value.length > 0) {
+      articles.value = sharedArticles.value.map((article) => articleForEditor(article))
+      const firstArticle = articles.value[0]
+      if (firstArticle) {
+        openArticle(firstArticle.id)
+      }
+      setStatus('Could not refresh from database. Showing cached articles.')
+    } else {
+      articles.value = []
+      selectedArticleId.value = ''
+      activeMode.value = 'view'
+      editor.value = defaultArticle()
+      setStatus('Could not load saved guide articles.')
+    }
   } finally {
     isLoadingArticles.value = false
     isBusy.value = false
@@ -431,6 +480,8 @@ async function saveArticle() {
     }
 
     articles.value.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    sharedArticles.value = articles.value.map((article) => articleForEditor(article))
+    hasLoadedArticles.value = true
     activeMode.value = 'view'
     selectedArticleId.value = saved.id
     editor.value = articleForEditor(saved)
@@ -464,6 +515,8 @@ async function deleteArticle(articleId: string) {
   try {
     await $fetch(`/api/guide-articles/${articleId}`, { method: 'DELETE' })
     articles.value = articles.value.filter((item) => item.id !== articleId)
+    sharedArticles.value = articles.value.map((item) => articleForEditor(item))
+    hasLoadedArticles.value = true
 
     if (selectedArticleId.value === articleId) {
       const firstArticle = articles.value[0]

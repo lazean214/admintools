@@ -11,15 +11,24 @@ type GuideArticle = {
   updatedAt: string
 }
 
-const { data: prefetchedArticles } = await useAsyncData<GuideArticle[]>(
-  'guide-articles-prefetch',
-  () => $fetch('/api/guide-articles' as string),
-  {
-    server: true,
-    lazy: false,
-    default: () => []
-  }
-)
+const sharedPrefetchedArticles = useState<GuideArticle[]>('guide-prefetched-articles', () => [])
+const hasPrefetchedArticles = useState<boolean>('guide-prefetched-once', () => false)
+
+if (!hasPrefetchedArticles.value) {
+  const guideArticlesEndpoint = ['/api', 'guide-articles'].join('/')
+  const { data } = await useAsyncData<GuideArticle[]>(
+    'guide-articles-prefetch',
+    () => $fetch<GuideArticle[]>(guideArticlesEndpoint),
+    {
+      server: true,
+      lazy: false,
+      default: () => []
+    }
+  )
+
+  sharedPrefetchedArticles.value = data.value || []
+  hasPrefetchedArticles.value = true
+}
 
 useSeoMeta({
   title: 'Real Estate Guide',
@@ -39,7 +48,7 @@ useSeoMeta({
         <h1 class="module-title text-3xl font-bold text-slate-900">Real Estate Guide</h1>
         <NuxtLink to="/" class="btn-secondary">Back Home</NuxtLink>
       </div>
-      <WikiPageModule :initial-articles="prefetchedArticles || []" />
+      <WikiPageModule :initial-articles="sharedPrefetchedArticles || []" />
     </div>
   </div>
 </template>
