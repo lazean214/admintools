@@ -28,10 +28,10 @@ const baseModules = [
     action: 'Open Form I'
   },
   {
-    title: 'PDF Template Filler',
+    title: 'Listing NOC',
     description: 'Load fillable fields from a PDF template and generate a completed PDF file.',
     path: '/listing-noc-form',
-    action: 'Open Template Filler'
+    action: 'Open Listing NOC Form'
   },
   {
     title: 'PDF Image Extractor',
