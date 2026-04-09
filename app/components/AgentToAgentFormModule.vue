@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
+import { PDFDocument } from 'pdf-lib'
 
 type RoleType = 'buyer' | 'seller'
 
@@ -63,30 +63,185 @@ function downloadBlob(blob: Blob, fileName: string) {
   URL.revokeObjectURL(url)
 }
 
-async function fileToBytes(file: File) {
-  return new Uint8Array(await file.arrayBuffer())
+function openBlobInNewTab(blob: Blob) {
+  const previewUrl = URL.createObjectURL(blob)
+  window.open(previewUrl, '_blank', 'noopener,noreferrer')
+  setTimeout(() => URL.revokeObjectURL(previewUrl), 60000)
 }
 
-function isPng(file: File) {
-  return file.type === 'image/png' || file.name.toLowerCase().endsWith('.png')
+async function fileToDataUrl(file: File) {
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(new Error('Failed to read image file.'))
+    reader.readAsDataURL(file)
+  })
 }
 
-async function embedOptionalImage(
-  pdfDoc: PDFDocument,
-  page: any,
+async function loadImageElementFromFile(file: File) {
+  const dataUrl = await fileToDataUrl(file)
+  return await new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('Failed to load image file.'))
+    image.src = dataUrl
+  })
+}
+
+async function drawOptionalImageOnCanvas(
+  ctx: CanvasRenderingContext2D,
   file: File | null,
   x: number,
   y: number,
   width: number,
-  height: number
+  height: number,
+  scale: number,
+  canvasHeight: number
 ) {
   if (!file) {
     return
   }
 
-  const bytes = await fileToBytes(file)
-  const image = isPng(file) ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes)
-  page.drawImage(image, { x, y, width, height })
+  const image = await loadImageElementFromFile(file)
+  const canvasX = x * scale
+  const canvasY = canvasHeight - (y + height) * scale
+  ctx.drawImage(image, canvasX, canvasY, width * scale, height * scale)
+}
+
+type FormFieldKey =
+  | 'establishmentName'
+  | 'officeAddress'
+  | 'officePhone'
+  | 'officeEmail'
+  | 'orn'
+  | 'dedLicense'
+  | 'poBox'
+  | 'agentName'
+  | 'brn'
+  | 'dateIssue'
+  | 'agentMobile'
+  | 'agentEmail'
+  | 'propertyAddress'
+  | 'propertyDeveloper'
+  | 'projectName'
+  | 'buildingName'
+  | 'price'
+  | 'description'
+  | 'isMou'
+  | 'isTenanted'
+  | 'maintenanceFee'
+  | 'commissionBuyer'
+  | 'commissionSeller'
+  | 'clientName'
+  | 'budget'
+  | 'isPreFinanced'
+  | 'isBuyerAgent'
+
+type FieldPlacement = {
+  xMm: number
+  yMm: number
+  fontSize?: number
+  maxWidthMm?: number
+}
+
+const sellerFieldPlacements: Record<FormFieldKey, FieldPlacement> = {
+  establishmentName: { xMm: 12, yMm: 45.5, maxWidthMm: 65 },
+  officeAddress: { xMm: 12, yMm: 59, maxWidthMm: 65 },
+  officePhone: { xMm: 18, yMm: 77.5, maxWidthMm: 40 },
+  officeEmail: { xMm: 67, yMm: 82.5, maxWidthMm: 35 },
+  orn: { xMm: 18, yMm: 87, maxWidthMm: 28 },
+  dedLicense: { xMm: 75, yMm: 87, maxWidthMm: 25 },
+  poBox: { xMm: 22, yMm: 82.5, maxWidthMm: 35 },
+  agentName: { xMm: 20, yMm: 100, maxWidthMm: 60 },
+  brn: { xMm: 20, yMm: 105, maxWidthMm: 28 },
+  dateIssue: { xMm: 75, yMm: 105, maxWidthMm: 25 },
+  agentMobile: { xMm: 20, yMm: 110, maxWidthMm: 45 },
+  agentEmail: { xMm: 20, yMm: 114.5, maxWidthMm: 75 },
+  propertyAddress: { xMm: 35, yMm: 161.5, fontSize: 8, maxWidthMm: 75 },
+  propertyDeveloper: { xMm: 35, yMm: 172, fontSize: 8, maxWidthMm: 75 },
+  projectName: { xMm: 37, yMm: 176, fontSize: 8, maxWidthMm: 73 },
+  buildingName: { xMm: 30, yMm: 187, fontSize: 8, maxWidthMm: 80 },
+  price: { xMm: 30, yMm: 191.5, fontSize: 8, maxWidthMm: 80 },
+  description: { xMm: 30, yMm: 196.5, fontSize: 8, maxWidthMm: 80 },
+  isMou: { xMm: 80, yMm: 202.5, fontSize: 8, maxWidthMm: 25 },
+  isTenanted: { xMm: 58.5, yMm: 207.5, fontSize: 9, maxWidthMm: 6 },
+  maintenanceFee: { xMm: 30, yMm: 202.5, fontSize: 8, maxWidthMm: 90 },
+  commissionBuyer: { xMm: 180, yMm: 181, fontSize: 8, maxWidthMm: 22 },
+  commissionSeller: { xMm: 135, yMm: 181, fontSize: 8, maxWidthMm: 22 },
+  clientName: { xMm: 148, yMm: 192, fontSize: 8, maxWidthMm: 52 },
+  budget: { xMm: 115, yMm: 196.5, fontSize: 8, maxWidthMm: 35 },
+  isPreFinanced: { xMm: 117.5, yMm: 192, fontSize: 9, maxWidthMm: 6 },
+  isBuyerAgent: { xMm: 168.5, yMm: 207.5, fontSize: 9, maxWidthMm: 6 }
+}
+
+const fieldPlacementsByRole: Record<RoleType, Record<FormFieldKey, FieldPlacement>> = {
+  seller: {
+    ...sellerFieldPlacements
+  },
+  buyer: {
+    ...sellerFieldPlacements,
+    establishmentName: { xMm: 107, yMm: 45.5, maxWidthMm: 65 },
+    officeAddress: { xMm: 107, yMm: 59, maxWidthMm: 65 },
+    officePhone: { xMm: 112, yMm: 77.5, maxWidthMm: 40 },
+    officeEmail: { xMm: 161, yMm: 82.5, maxWidthMm: 35 },
+    orn: { xMm: 112, yMm: 87.5, maxWidthMm: 28 },
+    dedLicense: { xMm: 167, yMm: 87.5, maxWidthMm: 25 },
+    poBox: { xMm: 116, yMm: 82.5, maxWidthMm: 35 },
+    agentName: { xMm: 112, yMm: 100, maxWidthMm: 60 },
+    brn: { xMm: 112, yMm: 105, maxWidthMm: 28 },
+    dateIssue: { xMm: 168, yMm: 105, maxWidthMm: 25 },
+    agentMobile: { xMm: 114, yMm: 110, maxWidthMm: 45 },
+    agentEmail: { xMm: 114, yMm: 114.5, maxWidthMm: 75 }
+  }
+}
+
+const MM_TO_PT = 72 / 25.4
+
+function mmToPt(valueMm: number) {
+  return valueMm * MM_TO_PT
+}
+
+function fitTextToWidth(ctx: CanvasRenderingContext2D, value: string, maxWidth: number) {
+  if (ctx.measureText(value).width <= maxWidth) {
+    return value
+  }
+
+  let trimmed = value
+  while (trimmed.length > 1 && ctx.measureText(`${trimmed}...`).width > maxWidth) {
+    trimmed = trimmed.slice(0, -1)
+  }
+  return `${trimmed}...`
+}
+
+function drawPlacedValue(
+  ctx: CanvasRenderingContext2D,
+  value: string,
+  placement: FieldPlacement,
+  scale: number,
+  _canvasHeight: number
+) {
+  const cleanValue = value.trim()
+  if (!cleanValue) {
+    return
+  }
+
+  const fontSize = (placement.fontSize ?? 7) * scale
+  ctx.font = `600 ${fontSize}px Arial`
+  ctx.fillStyle = '#0f172a'
+  const maxWidth = placement.maxWidthMm ? mmToPt(placement.maxWidthMm) * scale : 0
+  const outputText = maxWidth > 0 ? fitTextToWidth(ctx, cleanValue, maxWidth) : cleanValue
+
+  const canvasX = mmToPt(placement.xMm) * scale
+  const canvasY = mmToPt(placement.yMm) * scale
+  ctx.fillText(outputText, canvasX, canvasY)
+}
+
+function isYes(value: string) {
+  return value.trim().toLowerCase() === 'yes'
+}
+
+function isNo(value: string) {
+  return value.trim().toLowerCase() === 'no'
 }
 
 async function generateAgentToAgentPdf() {
@@ -101,142 +256,116 @@ async function generateAgentToAgentPdf() {
       return new Uint8Array(await response.arrayBuffer())
     })
 
-    const templateDoc = await PDFDocument.load(templateBytes)
-    const templatePage = templateDoc.getPages()[0]
-    const { width, height } = templatePage.getSize()
+    const pdfjs = await import('pdfjs-dist')
+    pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
 
-    // Flatten template into a fresh output PDF so drawn text is always above template content.
-    const pdfDoc = await PDFDocument.create()
-    const page = pdfDoc.addPage([width, height])
-    const embeddedTemplatePage = await pdfDoc.embedPage(templatePage)
-    page.drawPage(embeddedTemplatePage, { x: 0, y: 0, width, height })
+    const loadingTask = pdfjs.getDocument({ data: templateBytes })
+    const templateDoc = await loadingTask.promise
+    const templatePage = await templateDoc.getPage(1)
+    const baseViewport = templatePage.getViewport({ scale: 1 })
+    const width = baseViewport.width
+    const height = baseViewport.height
 
-    const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
-    const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
-
-    // Seller fields on left side, buyer fields on right side.
-    const roleBlockX = form.role === 'seller' ? 52 : width - 248
-    let roleBlockY = height - 118
-    const fixedBlockLeftX = 175
-    const fixedBlockRightX = 378
-    let fixedLeftY = height - 118
-    let fixedRightY = height - 118
-
-    const signatureY = form.role === 'seller' ? height - 220 : 92
-    const stampY = form.role === 'seller' ? height - 240 : 68
-
-    const drawLine = (label: string, value: string, isBold = false) => {
-      if (!value.trim()) {
-        return
-      }
-      const text = `${label}: ${value}`
-      const textFont = isBold ? boldFont : font
-      const textSize = 10
-      const textWidth = textFont.widthOfTextAtSize(text, textSize)
-      page.drawRectangle({
-        x: roleBlockX - 2,
-        y: roleBlockY - 2,
-        width: Math.min(textWidth + 6, width - roleBlockX - 4),
-        height: 12,
-        color: rgb(1, 1, 1),
-        opacity: 0.92
-      })
-      page.drawText(text, {
-        x: roleBlockX,
-        y: roleBlockY,
-        size: textSize,
-        font: textFont,
-        color: rgb(0.07, 0.11, 0.18)
-      })
-      roleBlockY -= 16
+    const renderScale = 2
+    const viewport = templatePage.getViewport({ scale: renderScale })
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.floor(viewport.width)
+    canvas.height = Math.floor(viewport.height)
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      throw new Error('Could not initialize canvas context.')
     }
 
-    const drawFixedLine = (label: string, value: string, rightColumn = false) => {
-      if (!value.trim()) {
-        return
-      }
-      const x = rightColumn ? fixedBlockRightX : fixedBlockLeftX
-      const y = rightColumn ? fixedRightY : fixedLeftY
-      const text = `${label}: ${value}`
-      const textSize = 9
-      const textWidth = font.widthOfTextAtSize(text, textSize)
-      page.drawRectangle({
-        x: x - 2,
-        y: y - 2,
-        width: Math.min(textWidth + 6, width - x - 4),
-        height: 11,
-        color: rgb(1, 1, 1),
-        opacity: 0.92
-      })
-      page.drawText(text, {
-        x,
-        y,
-        size: textSize,
-        font,
-        color: rgb(0.07, 0.11, 0.18)
-      })
-      if (rightColumn) {
-        fixedRightY -= 14
-      } else {
-        fixedLeftY -= 14
-      }
+    await templatePage.render({ canvasContext: ctx, viewport, canvas }).promise
+
+    const signatureTopMm = form.role === 'seller' ? 223 : 235
+    const signatureWidthPt = mmToPt(40)
+    const signatureHeightPt = mmToPt(20)
+    const signatureY = height - mmToPt(signatureTopMm) - signatureHeightPt
+
+    const stampTopMm = form.role === 'seller' ? 223 : 235
+    const stampWidthPt = mmToPt(60)
+    const stampHeightPt = mmToPt(40)
+    const stampY = height - mmToPt(stampTopMm) - stampHeightPt
+
+    const rolePlacements = fieldPlacementsByRole[form.role]
+    const drawField = (fieldKey: FormFieldKey) => {
+      drawPlacedValue(ctx, form[fieldKey], rolePlacements[fieldKey], renderScale, canvas.height)
     }
 
-    page.drawText(`ROLE: ${form.role.toUpperCase()}`, {
-      x: roleBlockX,
-      y: roleBlockY + 18,
-      size: 12,
-      font: boldFont,
-      color: rgb(0.06, 0.45, 0.42)
+    drawField('establishmentName')
+    drawField('officeAddress')
+    drawField('officePhone')
+    drawField('officeEmail')
+    drawField('orn')
+    drawField('dedLicense')
+    drawField('poBox')
+    drawField('agentName')
+    drawField('brn')
+    drawField('dateIssue')
+    drawField('agentMobile')
+    drawField('agentEmail')
+    drawField('propertyAddress')
+    drawField('propertyDeveloper')
+    drawField('projectName')
+    drawField('buildingName')
+    drawField('price')
+    drawField('description')
+    if (isYes(form.isMou)) {
+      drawPlacedValue(ctx, 'w/ MOU', rolePlacements.isMou, renderScale, canvas.height)
+    }
+    drawPlacedValue(ctx, `Maintenance Fee P/A: ${form.maintenanceFee}`.trim(), rolePlacements.maintenanceFee, renderScale, canvas.height)
+    drawField('commissionBuyer')
+    drawField('commissionSeller')
+    drawField('clientName')
+    drawField('budget')
+
+    drawPlacedValue(
+      ctx,
+      isYes(form.isTenanted) ? 'X' : isNo(form.isTenanted) ? '' : form.isTenanted,
+      isYes(form.isTenanted) ? rolePlacements.isTenanted : { ...rolePlacements.isTenanted, xMm: 74 },
+      renderScale,
+      canvas.height
+    )
+
+    if (isYes(form.isPreFinanced)) {
+      drawPlacedValue(ctx, 'X', rolePlacements.isPreFinanced, renderScale, canvas.height)
+    }
+
+    drawPlacedValue(
+      ctx,
+      isYes(form.isBuyerAgent) ? 'X' : isNo(form.isBuyerAgent) ? 'X' : form.isBuyerAgent,
+      isYes(form.isBuyerAgent) ? rolePlacements.isBuyerAgent : { ...rolePlacements.isBuyerAgent, xMm: 184 },
+      renderScale,
+      canvas.height
+    )
+
+    await drawOptionalImageOnCanvas(ctx, uploads.logo, 25, height - 55, 80, 40, renderScale, canvas.height)
+    await drawOptionalImageOnCanvas(ctx, uploads.signature, mmToPt(110), signatureY, signatureWidthPt, signatureHeightPt, renderScale, canvas.height)
+    await drawOptionalImageOnCanvas(ctx, uploads.stamp, mmToPt(140), stampY, stampWidthPt, stampHeightPt, renderScale, canvas.height)
+
+    const imageBlob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          reject(new Error('Failed to convert canvas to image.'))
+          return
+        }
+        resolve(blob)
+      }, 'image/png')
     })
 
-    // Strong visible marker to confirm generated content is rendered on the page.
-    page.drawRectangle({ x: 20, y: height - 32, width: 300, height: 16, color: rgb(1, 1, 1), opacity: 0.95 })
-    page.drawText(`FORM I GENERATED - ${new Date().toLocaleString()}`, {
-      x: 24,
-      y: height - 28,
-      size: 10,
-      font: boldFont,
-      color: rgb(0.12, 0.22, 0.62)
-    })
+    const imageBytes = new Uint8Array(await imageBlob.arrayBuffer())
+    const outDoc = await PDFDocument.create()
+    const outPage = outDoc.addPage([width, height])
+    const embedded = await outDoc.embedPng(imageBytes)
+    outPage.drawImage(embedded, { x: 0, y: 0, width, height })
 
-    drawLine('EstablishmentName', form.establishmentName, true)
-    drawLine('officeAdress', form.officeAddress)
-    drawLine('officePhone', form.officePhone)
-    drawLine('officeEMail', form.officeEmail)
-    drawLine('orn', form.orn)
-    drawLine('dedlicense', form.dedLicense)
-    drawLine('pobox', form.poBox)
-    drawLine('agentName', form.agentName)
-    drawLine('brn', form.brn)
-    drawLine('dateIssue', form.dateIssue)
-    drawLine('agentMobile', form.agentMobile)
-    drawLine('agentEmail', form.agentEmail)
-
-    drawFixedLine('propertyAddress', form.propertyAddress)
-    drawFixedLine('propertyDeveloper', form.propertyDeveloper)
-    drawFixedLine('projectName', form.projectName)
-    drawFixedLine('buildingName', form.buildingName)
-    drawFixedLine('price', form.price)
-    drawFixedLine('description', form.description)
-    drawFixedLine('isMou', form.isMou)
-
-    drawFixedLine('isTenanted', form.isTenanted, true)
-    drawFixedLine('maintenanceFee', form.maintenanceFee, true)
-    drawFixedLine('commissionBuyer', form.commissionBuyer, true)
-    drawFixedLine('commissionSeller', form.commissionSeller, true)
-    drawFixedLine('clientName', form.clientName, true)
-    drawFixedLine('budget', form.budget, true)
-    drawFixedLine('isPreFinanced', form.isPreFinanced, true)
-    drawFixedLine('isBuyerAgent', form.isBuyerAgent, true)
-
-    await embedOptionalImage(pdfDoc, page, uploads.logo, 48, height - 135, 110, 60)
-    await embedOptionalImage(pdfDoc, page, uploads.signature, width - 255, signatureY, 118, 44)
-    await embedOptionalImage(pdfDoc, page, uploads.stamp, width - 120, stampY, 68, 68)
-
-    const output = await pdfDoc.save()
+    const output = await outDoc.save({ useObjectStreams: false })
+    const outputBytes = Uint8Array.from(output)
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    downloadBlob(new Blob([output], { type: 'application/pdf' }), `agent-to-agent-filled-${stamp}.pdf`)
+    const outBlob = new Blob([outputBytes], { type: 'application/pdf' })
+    openBlobInNewTab(outBlob)
+    downloadBlob(outBlob, `agent-to-agent-filled-${stamp}.pdf`)
     setStatus('Done. PDF generated and downloaded.')
   } catch (error) {
     console.error(error)
@@ -268,62 +397,62 @@ async function generateAgentToAgentPdf() {
           </label>
 
           <label class="text-sm font-semibold sm:col-span-2">
-            EstablishmentName
+            Business Name
             <input v-model="form.establishmentName" type="text" class="field-control mt-1" placeholder="Establishment name" >
           </label>
 
           <label class="text-sm font-semibold">
-            officeAdress
+            Office Address
             <input v-model="form.officeAddress" type="text" class="field-control mt-1" placeholder="Office address" >
           </label>
 
           <label class="text-sm font-semibold">
-            officePhone
+            Office Phone
             <input v-model="form.officePhone" type="text" class="field-control mt-1" placeholder="Office phone" >
           </label>
 
           <label class="text-sm font-semibold">
-            officeEMail
+            Office Email
             <input v-model="form.officeEmail" type="email" class="field-control mt-1" placeholder="office@email.com" >
           </label>
 
           <label class="text-sm font-semibold">
-            orn
+            ORN
             <input v-model="form.orn" type="text" class="field-control mt-1" placeholder="ORN" >
           </label>
 
           <label class="text-sm font-semibold">
-            dedlicense
+            DED License
             <input v-model="form.dedLicense" type="text" class="field-control mt-1" placeholder="DED License" >
           </label>
 
           <label class="text-sm font-semibold">
-            pobox
+            PO Box
             <input v-model="form.poBox" type="text" class="field-control mt-1" placeholder="PO Box" >
           </label>
 
           <label class="text-sm font-semibold">
-            agentName
+            Agent Name
             <input v-model="form.agentName" type="text" class="field-control mt-1" placeholder="Agent name" >
           </label>
 
           <label class="text-sm font-semibold">
-            brn
+            BRN
             <input v-model="form.brn" type="text" class="field-control mt-1" placeholder="BRN" >
           </label>
 
           <label class="text-sm font-semibold">
-            dateIssue
+            Date of Issue
             <input v-model="form.dateIssue" type="date" class="field-control mt-1" >
           </label>
 
           <label class="text-sm font-semibold">
-            agentMobile
+            Agent Mobile
             <input v-model="form.agentMobile" type="text" class="field-control mt-1" placeholder="Agent mobile" >
           </label>
 
           <label class="text-sm font-semibold sm:col-span-2">
-            agentEmail
+            Agent Email
             <input v-model="form.agentEmail" type="email" class="field-control mt-1" placeholder="agent@email.com" >
           </label>
         </div>
@@ -333,37 +462,37 @@ async function generateAgentToAgentPdf() {
         <h3 class="module-title text-lg font-bold">Fixed Position Inputs</h3>
         <div class="mt-3 grid gap-3 sm:grid-cols-2">
           <label class="text-sm font-semibold sm:col-span-2">
-            propertyAddress
+            Property Address
             <input v-model="form.propertyAddress" type="text" class="field-control mt-1" placeholder="Property address" >
           </label>
 
           <label class="text-sm font-semibold">
-            propertyDeveloper
+            Property Developer
             <input v-model="form.propertyDeveloper" type="text" class="field-control mt-1" >
           </label>
 
           <label class="text-sm font-semibold">
-            projectName
+            Project Name
             <input v-model="form.projectName" type="text" class="field-control mt-1" >
           </label>
 
           <label class="text-sm font-semibold">
-            buildingName
+            Building Name
             <input v-model="form.buildingName" type="text" class="field-control mt-1" >
           </label>
 
           <label class="text-sm font-semibold">
-            price
+            Price
             <input v-model="form.price" type="text" class="field-control mt-1" >
           </label>
 
           <label class="text-sm font-semibold sm:col-span-2">
-            description
+            Description
             <input v-model="form.description" type="text" class="field-control mt-1" >
           </label>
 
           <label class="text-sm font-semibold">
-            isMou
+            Does an MOU exist on this property?
             <select v-model="form.isMou" class="field-control mt-1">
               <option value="">Select</option>
               <option value="Yes">Yes</option>
@@ -372,7 +501,7 @@ async function generateAgentToAgentPdf() {
           </label>
 
           <label class="text-sm font-semibold">
-            isTenanted
+            Is this property being tenanted?
             <select v-model="form.isTenanted" class="field-control mt-1">
               <option value="">Select</option>
               <option value="Yes">Yes</option>
@@ -381,32 +510,32 @@ async function generateAgentToAgentPdf() {
           </label>
 
           <label class="text-sm font-semibold">
-            maintenanceFee
+            Maintenance Fee P.A
             <input v-model="form.maintenanceFee" type="text" class="field-control mt-1" >
           </label>
 
           <label class="text-sm font-semibold">
-            commissionBuyer
+            Commission Buyer
             <input v-model="form.commissionBuyer" type="text" class="field-control mt-1" >
           </label>
 
           <label class="text-sm font-semibold">
-            commissionSeller
+            Commission Seller
             <input v-model="form.commissionSeller" type="text" class="field-control mt-1" >
           </label>
 
           <label class="text-sm font-semibold">
-            clientName
+            Client Name
             <input v-model="form.clientName" type="text" class="field-control mt-1" >
           </label>
 
           <label class="text-sm font-semibold">
-            budget
+            Budget
             <input v-model="form.budget" type="text" class="field-control mt-1" >
           </label>
 
           <label class="text-sm font-semibold">
-            isPreFinanced
+            Has the Buyer had Pre-Finance Approval?
             <select v-model="form.isPreFinanced" class="field-control mt-1">
               <option value="">Select</option>
               <option value="Yes">Yes</option>
@@ -415,7 +544,7 @@ async function generateAgentToAgentPdf() {
           </label>
 
           <label class="text-sm font-semibold">
-            isBuyerAgent
+            Has the Buyer contacted the Listing Agent?
             <select v-model="form.isBuyerAgent" class="field-control mt-1">
               <option value="">Select</option>
               <option value="Yes">Yes</option>
