@@ -20,6 +20,7 @@ Nuxt 4 application for real estate document workflows, including template-based 
 	- PO Box
 - Local registration/login flow (browser local storage).
 - Module navigation for PDF extractor, image resize, e-signature, watermark tools.
+- Contact module for bug reports and feature requests via WhatsApp.
 
 ## Local Storage and Privacy
 
@@ -37,9 +38,21 @@ Nuxt 4 application for real estate document workflows, including template-based 
 - `/` Home
 - `/agent-to-agent-form` Form I generator
 - `/pdf-template-filler` Listing agreement template filler
+- `/pdf-image-extractor` PDF image extractor
+- `/image-resize` Image resizer
+- `/e-signature` E-signature tool
+- `/watermark` Watermark tool
+- `/watermark-remover` Watermark remover
+- `/contact` Contact and requests module (WhatsApp: +971506422370)
 - `/profile-settings` Protected profile settings
 - `/login` Login
 - `/register` Registration
+
+## Contact and Support
+
+- For bug reports and feature requests, use the Contact module in the app.
+- Quick contact link uses WhatsApp to: `+971506422370`.
+- Project note shown in the Contact module: tools are provided for free for admins who may not have access to paid tools.
 
 ## Setup
 
