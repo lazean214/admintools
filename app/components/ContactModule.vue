@@ -45,19 +45,16 @@ async function copyNumber() {
 
     <div class="mt-4 rounded-2xl bg-white/70 p-4 text-sm leading-6 text-slate-700">
       <p>
-        Hi, my name is Neil, I am an IT professional, programmer, and photographer.
+        Hi, I’m Neil — an IT professional, programmer, and photographer with years of experience in the real estate industry.
       </p>
       <p class="mt-2">
-        I have been working in the real estate industry for years and developed these tools for free.
+        Over time, I’ve developed a suite of free tools designed to support administrators who may not have access to expensive or premium software. These tools are built to simplify everyday tasks and improve workflow efficiency.
       </p>
       <p class="mt-2">
-        These tools help admins who do not have access to paid tools needed for their tasks.
+        I’m always open to feedback and suggestions to enhance these tools and continuously expand the collection with more useful solutions.
       </p>
       <p class="mt-2">
-        I am open to comments and suggestions to make these tools better, and I am always looking for ways to expand the suite with more helpful utilities.
-      </p>
-      <p class="mt-2">
-        I am also open for commission projects.
+        I’m also available for freelance and commission-based projects.
       </p>
     </div>
 
