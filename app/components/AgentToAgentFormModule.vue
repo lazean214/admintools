@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { PDFDocument } from 'pdf-lib'
+import type { ProfileSettings } from '~/composables/useAuth'
 
 type RoleType = 'buyer' | 'seller'
 
@@ -43,13 +44,33 @@ const uploads = reactive({
   stamp: null as File | null
 })
 
+const auth = useAuth()
+
+const storedAssets = reactive({
+  logoDataUrl: null as string | null,
+  stampDataUrl: null as string | null
+})
+
+const previews = reactive({
+  logo: null as string | null,
+  stamp: null as string | null
+})
+
+const logoPreviewUrl = computed(() => previews.logo ?? storedAssets.logoDataUrl)
+const stampPreviewUrl = computed(() => previews.stamp ?? storedAssets.stampDataUrl)
+
 function setStatus(message: string) {
   status.value = message
 }
 
-function onFileInputChange(event: Event, key: 'logo' | 'signature' | 'stamp') {
+async function onFileInputChange(event: Event, key: 'logo' | 'signature' | 'stamp') {
   const target = event.target as HTMLInputElement
-  uploads[key] = target.files?.[0] ?? null
+  const file = target.files?.[0] ?? null
+  uploads[key] = file
+
+  if (key === 'logo' || key === 'stamp') {
+    previews[key] = file ? await fileToDataUrl(file) : null
+  }
 }
 
 function downloadBlob(blob: Blob, fileName: string) {
@@ -88,9 +109,18 @@ async function loadImageElementFromFile(file: File) {
   })
 }
 
+async function loadImageElementFromDataUrl(dataUrl: string) {
+  return await new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('Failed to load stored image data.'))
+    image.src = dataUrl
+  })
+}
+
 async function drawOptionalImageOnCanvas(
   ctx: CanvasRenderingContext2D,
-  file: File | null,
+  source: File | string | null,
   x: number,
   y: number,
   width: number,
@@ -98,15 +128,46 @@ async function drawOptionalImageOnCanvas(
   scale: number,
   canvasHeight: number
 ) {
-  if (!file) {
+  if (!source) {
     return
   }
 
-  const image = await loadImageElementFromFile(file)
+  const image = typeof source === 'string'
+    ? await loadImageElementFromDataUrl(source)
+    : await loadImageElementFromFile(source)
   const canvasX = x * scale
   const canvasY = canvasHeight - (y + height) * scale
   ctx.drawImage(image, canvasX, canvasY, width * scale, height * scale)
 }
+
+function applyProfileDefaults(profile: ProfileSettings) {
+  if (!form.establishmentName) form.establishmentName = profile.establishmentName
+  if (!form.officeAddress) form.officeAddress = profile.officeAddress
+  if (!form.officePhone) form.officePhone = profile.officePhone
+  if (!form.officeEmail) form.officeEmail = profile.officeEmail
+  if (!form.orn) form.orn = profile.orn
+  if (!form.dedLicense) form.dedLicense = profile.dedLicense
+  if (!form.poBox) form.poBox = profile.poBox
+
+  storedAssets.logoDataUrl = profile.logoDataUrl
+  storedAssets.stampDataUrl = profile.stampDataUrl
+}
+
+onMounted(() => {
+  auth.hydrate()
+  if (auth.currentUser.value?.profile) {
+    applyProfileDefaults(auth.currentUser.value.profile)
+  }
+})
+
+watch(
+  () => auth.currentUser.value?.profile,
+  (profile) => {
+    if (profile) {
+      applyProfileDefaults(profile)
+    }
+  }
+)
 
 type FormFieldKey =
   | 'establishmentName'
@@ -340,9 +401,12 @@ async function generateAgentToAgentPdf() {
       canvas.height
     )
 
-    await drawOptionalImageOnCanvas(ctx, uploads.logo, 25, height - 55, 80, 40, renderScale, canvas.height)
+    const logoSource = uploads.logo ?? storedAssets.logoDataUrl
+    const stampSource = uploads.stamp ?? storedAssets.stampDataUrl
+
+    await drawOptionalImageOnCanvas(ctx, logoSource, 25, height - 55, 80, 40, renderScale, canvas.height)
     await drawOptionalImageOnCanvas(ctx, uploads.signature, mmToPt(110), signatureY, signatureWidthPt, signatureHeightPt, renderScale, canvas.height)
-    await drawOptionalImageOnCanvas(ctx, uploads.stamp, mmToPt(140), stampY, stampWidthPt, stampHeightPt, renderScale, canvas.height)
+    await drawOptionalImageOnCanvas(ctx, stampSource, mmToPt(140), stampY, stampWidthPt, stampHeightPt, renderScale, canvas.height)
 
     const imageBlob = await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob((blob) => {
@@ -561,6 +625,12 @@ async function generateAgentToAgentPdf() {
             Logo (optional)
             <input type="file" accept="image/png,image/jpeg,image/jpg" class="field-control mt-1" @change="(event) => onFileInputChange(event, 'logo')" >
             <span class="mt-1 block text-xs text-slate-500">{{ uploads.logo?.name || 'No file selected' }}</span>
+            <img
+              v-if="logoPreviewUrl"
+              :src="logoPreviewUrl"
+              alt="Logo preview"
+              class="mt-2 h-20 w-auto rounded-md border border-slate-200 object-contain bg-gray-700 p-2"
+            >
           </label>
 
           <label class="block text-sm font-semibold">
@@ -573,6 +643,12 @@ async function generateAgentToAgentPdf() {
             Stamp (optional)
             <input type="file" accept="image/png,image/jpeg,image/jpg" class="field-control mt-1" @change="(event) => onFileInputChange(event, 'stamp')" >
             <span class="mt-1 block text-xs text-slate-500">{{ uploads.stamp?.name || 'No file selected' }}</span>
+            <img
+              v-if="stampPreviewUrl"
+              :src="stampPreviewUrl"
+              alt="Stamp preview"
+              class="mt-2 h-20 w-auto rounded-md border border-slate-200 object-contain bg-white p-1"
+            >
           </label>
         </div>
 

@@ -1,10 +1,22 @@
 <script setup lang="ts">
-const modules = [
+const auth = useAuth()
+
+onMounted(() => {
+  auth.hydrate()
+})
+
+const baseModules = [
   {
     title: 'Form I / Agent To Agent',
     description: 'Fill agent-to-agent form fields and generate a PDF from the provided template.',
     path: '/agent-to-agent-form',
     action: 'Open Form I'
+  },
+  {
+    title: 'PDF Template Filler',
+    description: 'Load fillable fields from a PDF template and generate a completed PDF file.',
+    path: '/pdf-template-filler',
+    action: 'Open Template Filler'
   },
   {
     title: 'PDF Image Extractor',
@@ -37,6 +49,30 @@ const modules = [
     action: 'Open Remover'
   }
 ]
+
+const modules = computed(() => {
+  if (auth.isAuthenticated.value) {
+    return [
+      {
+        title: 'Profile Settings',
+        description: 'Save company profile defaults (logo, stamp, and office details) for Form I in local storage.',
+        path: '/profile-settings',
+        action: 'Open Profile Settings'
+      },
+      ...baseModules
+    ]
+  }
+
+  return [
+    {
+      title: 'Account Access',
+      description: 'Register or login to enable private profile settings and saved defaults.',
+      path: '/register',
+      action: 'Create Account'
+    },
+    ...baseModules
+  ]
+})
 </script>
 
 <template>
@@ -45,11 +81,10 @@ const modules = [
       <AppTopNav />
 
       <header class="module-surface mb-8">
-        <p class="module-title mb-2 text-sm uppercase tracking-[0.25em] text-teal-700">WebTools Suite</p>
-        <h1 class="mb-3 text-3xl font-bold text-slate-900 md:text-5xl">Welcome to Your Utility Workspace</h1>
+        <p class="module-title mb-2 text-sm uppercase tracking-[0.25em] text-teal-700">Real Estate WebTools Suite</p>
+        <h1 class="mb-3 text-3xl font-bold text-slate-900 md:text-5xl">Welcome to Your Real Estate Utility Workspace</h1>
         <p class="max-w-3xl text-slate-700">
-          This app organizes document and image tooling into separate pages for better scalability. Start from a module card below,
-          and easily extend with new modules as your toolkit grows.
+          This toolkit is designed to streamline your real estate document management and image processing tasks. Whether you need to fill out forms, extract images from PDFs, resize photos, create e-signatures, or apply watermarks, everything is organized here for easy access. Create an account to save your profile settings and defaults for a more personalized experience across the suite.
         </p>
       </header>
 
