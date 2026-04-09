@@ -1,9 +1,7 @@
 import { getRouterParam } from 'h3'
 import { getGuideArticleById } from '../../utils/guide-db'
-import { requireSessionUser } from '../../utils/auth-db'
 
 export default defineEventHandler(async (event) => {
-  await requireSessionUser(event)
   const id = getRouterParam(event, 'id')
   if (!id) {
     throw createError({ statusCode: 400, statusMessage: 'Article id is required.' })

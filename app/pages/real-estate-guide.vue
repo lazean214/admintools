@@ -1,8 +1,4 @@
 <script setup lang="ts">
-definePageMeta({
-  middleware: ['auth']
-})
-
 useSeoMeta({
   title: 'Real Estate Guide',
   description: 'Create and manage real estate admin guide articles with markdown and uploaded images.',

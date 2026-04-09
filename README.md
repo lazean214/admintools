@@ -50,7 +50,7 @@ Nuxt 4 application for real estate document workflows, including template-based 
 - `/agent-to-agent-form` Form I generator
 - `/listing-noc-form` Listing NOC form filler
 - `/pdf-template-filler` Legacy route redirect to `/listing-noc-form`
-- `/real-estate-guide` Guide/article module (authenticated)
+- `/real-estate-guide` Guide/article module (public read-only, role-based create/edit/delete)
 - `/pdf-image-extractor` PDF image extractor
 - `/image-resize` Image resizer
 - `/e-signature` E-signature tool

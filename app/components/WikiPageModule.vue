@@ -36,6 +36,7 @@ const status = ref('Ready')
 const selectedArticleId = ref('')
 const activeMode = ref<GuideMode>('view')
 const isBusy = ref(false)
+const isLoadingArticles = ref(false)
 const isSaving = ref(false)
 const inlineImageInput = ref<HTMLInputElement | null>(null)
 const toasts = ref<ToastMessage[]>([])
@@ -325,6 +326,8 @@ function sanitizeArticle(value: unknown): GuideArticle | null {
 
 async function loadArticles() {
   isBusy.value = true
+  isLoadingArticles.value = true
+  setStatus('Loading guide articles...')
   try {
     const list = await $fetch<GuideArticle[]>('/api/guide-articles')
     articles.value = Array.isArray(list)
@@ -349,6 +352,7 @@ async function loadArticles() {
     editor.value = defaultArticle()
     setStatus('Could not load saved guide articles.')
   } finally {
+    isLoadingArticles.value = false
     isBusy.value = false
   }
 }
@@ -555,6 +559,7 @@ function prettyDate(value: string) {
         <p class="mt-1 text-sm text-slate-600">Manage admin-focused blog articles with markdown writing and image uploads.</p>
       </div>
       <div class="flex items-center gap-2">
+        <span v-if="isLoadingArticles" class="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-900">Loading articles...</span>
         <span v-if="isSaving" class="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">Saving...</span>
         <p class="status-pill">{{ status }}</p>
       </div>
@@ -581,6 +586,14 @@ function prettyDate(value: string) {
         </div>
 
         <div class="max-h-[30rem] space-y-2 overflow-auto pr-1">
+          <div v-if="isLoadingArticles" class="space-y-2">
+            <div v-for="n in 4" :key="`skeleton-${n}`" class="loading-skeleton rounded-xl border border-slate-200 bg-white p-3">
+              <div class="h-4 w-3/4 rounded bg-slate-200"></div>
+              <div class="mt-2 h-3 w-1/2 rounded bg-slate-200"></div>
+              <div class="mt-2 h-3 w-full rounded bg-slate-200"></div>
+            </div>
+          </div>
+
           <button
             v-for="article in filteredArticles"
             :key="article.id"
@@ -612,7 +625,7 @@ function prettyDate(value: string) {
             </button>
           </button>
 
-          <p v-if="filteredArticles.length === 0" class="rounded-xl border border-dashed border-slate-300 p-3 text-sm text-slate-600">
+          <p v-if="!isLoadingArticles && filteredArticles.length === 0" class="rounded-xl border border-dashed border-slate-300 p-3 text-sm text-slate-600">
             No articles found. Click Create to add your first guide.
           </p>
         </div>
@@ -713,9 +726,15 @@ function prettyDate(value: string) {
 
           <div class="mt-4 rounded-xl border border-slate-200 bg-white p-4">
             <div v-if="activeMode === 'view' && !selectedArticle" class="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+              <template v-if="isLoadingArticles">
+                <p class="module-title text-lg font-bold text-slate-800">Loading articles</p>
+                <p class="mt-2 text-sm text-slate-600">Please wait while we fetch data from Supabase.</p>
+              </template>
+              <template v-else>
               <p class="module-title text-lg font-bold text-slate-800">No article selected</p>
               <p class="mt-2 text-sm text-slate-600">Select an article from the list to view it, or create a new one.</p>
               <button type="button" class="btn-secondary mt-4" @click="startNewArticle">Create Article</button>
+              </template>
             </div>
 
             <template v-else>
@@ -766,6 +785,20 @@ function prettyDate(value: string) {
 </template>
 
 <style scoped>
+.loading-skeleton {
+  animation: pulse-skeleton 1.1s ease-in-out infinite;
+}
+
+@keyframes pulse-skeleton {
+  0%,
+  100% {
+    opacity: 0.75;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 .toast-item {
   animation: toast-enter 0.2s ease-out;
 }
