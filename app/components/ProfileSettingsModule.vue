@@ -1,9 +1,24 @@
 <script setup lang="ts">
-import type { ProfileSettings } from '~/composables/useAuth'
+import type { ProfileSettings } from '../composables/useAuth'
+import type { UserRole } from '../composables/useAuth'
 
 const auth = useAuth()
 const status = ref('Load, edit, and save your profile defaults.')
 const saving = ref(false)
+const roleBusyId = ref('')
+
+type UserItem = {
+  id: string
+  name: string
+  email: string
+  role: UserRole
+  profile: ProfileSettings
+}
+
+const users = ref<UserItem[]>([])
+const roleDrafts = ref<Record<string, UserRole>>({})
+
+const isAdmin = computed(() => auth.currentUser.value?.role === 'admin')
 
 const form = reactive<ProfileSettings>(auth.emptyProfile())
 
@@ -20,10 +35,16 @@ function setForm(profile: ProfileSettings) {
 }
 
 onMounted(() => {
-  auth.hydrate()
-  if (auth.currentUser.value?.profile) {
-    setForm(auth.currentUser.value.profile)
-  }
+  void (async () => {
+    await auth.hydrate()
+    if (auth.currentUser.value?.profile) {
+      setForm(auth.currentUser.value.profile)
+    }
+
+    if (isAdmin.value) {
+      await loadUsersForRoleManagement()
+    }
+  })()
 })
 
 watch(
@@ -34,6 +55,61 @@ watch(
     }
   }
 )
+
+watch(
+  () => auth.currentUser.value?.role,
+  (role) => {
+    if (role === 'admin') {
+      void loadUsersForRoleManagement()
+      return
+    }
+    users.value = []
+    roleDrafts.value = {}
+  }
+)
+
+async function loadUsersForRoleManagement() {
+  try {
+    const list = await auth.listUsers()
+    users.value = list
+    roleDrafts.value = list.reduce((accumulator, user) => {
+      accumulator[user.id] = user.role
+      return accumulator
+    }, {} as Record<string, UserRole>)
+  } catch (error) {
+    console.error(error)
+    status.value = error instanceof Error ? error.message : 'Could not load users for role management.'
+  }
+}
+
+async function saveUserRole(userId: string) {
+  const role = roleDrafts.value[userId]
+  if (!role) {
+    status.value = 'Select a role before saving.'
+    return
+  }
+
+  roleBusyId.value = userId
+  try {
+    const updated = await auth.updateUserRole(userId, role)
+    users.value = users.value.map((item) => (item.id === userId ? { ...item, role: updated.role } : item))
+
+    if (updated.id === auth.currentUser.value?.id) {
+      await auth.hydrate()
+    }
+
+    status.value = `Updated role for ${updated.name}.`
+  } catch (error) {
+    console.error(error)
+    status.value = error instanceof Error ? error.message : 'Could not update user role.'
+    const existing = users.value.find((item) => item.id === userId)
+    if (existing) {
+      roleDrafts.value[userId] = existing.role
+    }
+  } finally {
+    roleBusyId.value = ''
+  }
+}
 
 async function fileToDataUrl(file: File) {
   return await new Promise<string>((resolve, reject) => {
@@ -60,11 +136,11 @@ function clearAsset(key: 'logoDataUrl' | 'stampDataUrl') {
   form[key] = null
 }
 
-function saveProfile() {
+async function saveProfile() {
   saving.value = true
   try {
-    auth.updateProfile({ ...form })
-    status.value = 'Profile settings saved to local storage.'
+    await auth.updateProfile({ ...form })
+    status.value = 'Profile settings saved to database.'
   } catch (error) {
     status.value = error instanceof Error ? error.message : 'Could not save profile settings.'
   } finally {
@@ -77,7 +153,7 @@ function saveProfile() {
   <section class="module-surface">
     <h2 class="module-title text-2xl font-bold">Profile Settings</h2>
     <p class="mt-2 text-sm text-slate-600">
-      Stored in your browser local storage and used as defaults in Form I.
+      Saved to your account and used as defaults in Form I.
     </p>
     <p class="status-pill mt-3">{{ status }}</p>
 
@@ -151,6 +227,51 @@ function saveProfile() {
       <button class="btn-primary disabled:opacity-60" :disabled="saving" @click="saveProfile">
         {{ saving ? 'Saving...' : 'Save Profile Settings' }}
       </button>
+    </div>
+
+    <div v-if="isAdmin" class="mt-8 rounded-2xl border border-slate-200 bg-white/80 p-4">
+      <h3 class="module-title text-xl font-bold">User Roles</h3>
+      <p class="mt-1 text-sm text-slate-600">Admin can manage account roles for article permissions.</p>
+
+      <div class="mt-4 overflow-x-auto">
+        <table class="min-w-full border-collapse text-sm">
+          <thead>
+            <tr class="border-b border-slate-200 text-left text-slate-600">
+              <th class="px-2 py-2 font-semibold">Name</th>
+              <th class="px-2 py-2 font-semibold">Email</th>
+              <th class="px-2 py-2 font-semibold">Role</th>
+              <th class="px-2 py-2 font-semibold">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="user in users"
+              :key="user.id"
+              class="border-b border-slate-100"
+            >
+              <td class="px-2 py-2 text-slate-800">{{ user.name }}</td>
+              <td class="px-2 py-2 text-slate-600">{{ user.email }}</td>
+              <td class="px-2 py-2">
+                <select v-model="roleDrafts[user.id]" class="field-control !w-40">
+                  <option value="admin">Admin</option>
+                  <option value="editor">Editor</option>
+                  <option value="viewer">Viewer</option>
+                </select>
+              </td>
+              <td class="px-2 py-2">
+                <button
+                  type="button"
+                  class="btn-secondary"
+                  :disabled="roleBusyId === user.id || roleDrafts[user.id] === user.role"
+                  @click="saveUserRole(user.id)"
+                >
+                  {{ roleBusyId === user.id ? 'Saving...' : 'Save Role' }}
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </section>
 </template>

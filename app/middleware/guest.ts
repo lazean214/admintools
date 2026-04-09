@@ -1,6 +1,6 @@
-export default defineNuxtRouteMiddleware(() => {
+export default defineNuxtRouteMiddleware(async () => {
   const auth = useAuth()
-  auth.hydrate()
+  await auth.hydrate()
 
   if (auth.isAuthenticated.value) {
     return navigateTo('/')

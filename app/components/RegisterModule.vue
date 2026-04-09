@@ -33,7 +33,7 @@ async function registerUser() {
 
   loading.value = true
   try {
-    auth.register({
+    await auth.register({
       name: form.name,
       email: form.email,
       password: form.password

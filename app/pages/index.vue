@@ -16,6 +16,12 @@ onMounted(() => {
 
 const baseModules = [
   {
+    title: 'Real Estate Guide',
+    description: 'Write and manage admin guide articles with markdown content and image uploads.',
+    path: '/real-estate-guide',
+    action: 'Open Guide'
+  },
+  {
     title: 'Form I / Agent To Agent',
     description: 'Fill agent-to-agent form fields and generate a PDF from the provided template.',
     path: '/agent-to-agent-form',
@@ -24,7 +30,7 @@ const baseModules = [
   {
     title: 'PDF Template Filler',
     description: 'Load fillable fields from a PDF template and generate a completed PDF file.',
-    path: '/pdf-template-filler',
+    path: '/listing-noc-form',
     action: 'Open Template Filler'
   },
   {

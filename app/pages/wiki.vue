@@ -1,5 +1,5 @@
 <script setup lang="ts">
-await navigateTo('/listing-noc-form', { redirectCode: 301 })
+await navigateTo('/real-estate-guide', { redirectCode: 301 })
 </script>
 
 <template>

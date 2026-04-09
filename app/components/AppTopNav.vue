@@ -10,8 +10,9 @@ onMounted(() => {
 
 const links = [
   { label: 'Home', to: '/' },
+  { label: 'Guide', to: '/real-estate-guide' },
   { label: 'Form I', to: '/agent-to-agent-form' },
-  { label: 'Listing NOC', to: '/pdf-template-filler' },
+  { label: 'Listing NOC', to: '/listing-noc-form' },
   { label: 'PDF Extractor', to: '/pdf-image-extractor' },
   { label: 'Image Resize', to: '/image-resize' },
   { label: 'E-Signature', to: '/e-signature' },
@@ -25,7 +26,7 @@ function isActive(path: string) {
 }
 
 async function logout() {
-  auth.logout()
+  await auth.logout()
   isMenuOpen.value = false
   await router.push('/')
 }

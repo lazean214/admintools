@@ -21,7 +21,7 @@ async function loginUser() {
 
   loading.value = true
   try {
-    auth.login({ email: form.email, password: form.password })
+    await auth.login({ email: form.email, password: form.password })
     status.value = 'Signed in. Redirecting...'
     const target = typeof route.query.redirect === 'string' ? route.query.redirect : '/profile-settings'
     await router.push(target)

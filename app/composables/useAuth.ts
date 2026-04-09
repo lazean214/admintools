@@ -10,11 +10,13 @@ export type ProfileSettings = {
   stampDataUrl: string | null
 }
 
-type UserRecord = {
+export type UserRole = 'admin' | 'editor' | 'viewer'
+
+type AuthUser = {
   id: string
   name: string
   email: string
-  password: string
+  role: UserRole
   profile: ProfileSettings
 }
 
@@ -29,8 +31,7 @@ type LoginPayload = {
   password: string
 }
 
-const AUTH_USERS_KEY = 'webtools-auth-users'
-const AUTH_SESSION_KEY = 'webtools-auth-session-user-id'
+let hydratePromise: Promise<void> | null = null
 
 function emptyProfile(): ProfileSettings {
   return {
@@ -47,116 +48,106 @@ function emptyProfile(): ProfileSettings {
 }
 
 export function useAuth() {
-  const users = useState<UserRecord[]>('auth-users', () => [])
-  const sessionUserId = useState<string | null>('auth-session-user-id', () => null)
+  const currentUser = useState<AuthUser | null>('auth-current-user', () => null)
   const hydrated = useState<boolean>('auth-hydrated', () => false)
 
-  const currentUser = computed(() => users.value.find((item) => item.id === sessionUserId.value) ?? null)
   const isAuthenticated = computed(() => currentUser.value !== null)
 
-  function persistUsers() {
-    if (!import.meta.client) {
-      return
-    }
-    localStorage.setItem(AUTH_USERS_KEY, JSON.stringify(users.value))
-  }
-
-  function persistSession() {
-    if (!import.meta.client) {
+  async function hydrate() {
+    if (hydrated.value) {
       return
     }
 
-    if (sessionUserId.value) {
-      localStorage.setItem(AUTH_SESSION_KEY, sessionUserId.value)
+    if (hydratePromise) {
+      await hydratePromise
       return
     }
-    localStorage.removeItem(AUTH_SESSION_KEY)
-  }
 
-  function hydrate() {
-    if (!import.meta.client || hydrated.value) {
-      return
-    }
+    hydratePromise = (async () => {
+      try {
+        const user = await $fetch<AuthUser>('/api/auth/me')
+        currentUser.value = user
+      } catch {
+        currentUser.value = null
+      } finally {
+        hydrated.value = true
+      }
+    })()
 
     try {
-      const usersRaw = localStorage.getItem(AUTH_USERS_KEY)
-      const parsedUsers = usersRaw ? JSON.parse(usersRaw) : []
-      users.value = Array.isArray(parsedUsers) ? parsedUsers : []
-
-      const storedSessionUserId = localStorage.getItem(AUTH_SESSION_KEY)
-      const sessionExists = users.value.some((item) => item.id === storedSessionUserId)
-      sessionUserId.value = sessionExists ? storedSessionUserId : null
-    } catch {
-      users.value = []
-      sessionUserId.value = null
+      await hydratePromise
     } finally {
+      hydratePromise = null
+    }
+  }
+
+  async function register(payload: RegisterPayload) {
+    const user = await $fetch<AuthUser>('/api/auth/register', {
+      method: 'POST',
+      body: {
+        name: payload.name,
+        email: payload.email,
+        password: payload.password
+      }
+    })
+
+    currentUser.value = user
+    hydrated.value = true
+    return user
+  }
+
+  async function login(payload: LoginPayload) {
+    const user = await $fetch<AuthUser>('/api/auth/login', {
+      method: 'POST',
+      body: {
+        email: payload.email,
+        password: payload.password
+      }
+    })
+
+    currentUser.value = user
+    hydrated.value = true
+    return user
+  }
+
+  async function logout() {
+    try {
+      await $fetch('/api/auth/logout', { method: 'POST' })
+    } finally {
+      currentUser.value = null
       hydrated.value = true
     }
   }
 
-  function register(payload: RegisterPayload) {
-    hydrate()
-
-    const email = payload.email.trim().toLowerCase()
-    if (users.value.some((item) => item.email === email)) {
-      throw new Error('An account with this email already exists.')
-    }
-
-    const newUser: UserRecord = {
-      id: crypto.randomUUID(),
-      name: payload.name.trim(),
-      email,
-      password: payload.password,
-      profile: emptyProfile()
-    }
-
-    users.value = [...users.value, newUser]
-    sessionUserId.value = newUser.id
-    persistUsers()
-    persistSession()
-    return newUser
-  }
-
-  function login(payload: LoginPayload) {
-    hydrate()
-
-    const email = payload.email.trim().toLowerCase()
-    const match = users.value.find((item) => item.email === email && item.password === payload.password)
-    if (!match) {
-      throw new Error('Invalid email or password.')
-    }
-
-    sessionUserId.value = match.id
-    persistSession()
-    return match
-  }
-
-  function logout() {
-    sessionUserId.value = null
-    persistSession()
-  }
-
-  function updateProfile(nextProfile: ProfileSettings) {
-    hydrate()
-    if (!sessionUserId.value) {
-      throw new Error('You need to be logged in to update profile settings.')
-    }
-
-    users.value = users.value.map((item) => {
-      if (item.id !== sessionUserId.value) {
-        return item
-      }
-      return {
-        ...item,
-        profile: { ...nextProfile }
-      }
+  async function updateProfile(nextProfile: ProfileSettings) {
+    const user = await $fetch<AuthUser>('/api/auth/profile', {
+      method: 'PUT',
+      body: { ...nextProfile }
     })
 
-    persistUsers()
+    currentUser.value = user
+    hydrated.value = true
+  }
+
+  async function listUsers() {
+    const users = await $fetch<AuthUser[]>('/api/auth/users')
+    return users
+  }
+
+  async function updateUserRole(userId: string, role: UserRole) {
+    const updated = await $fetch<AuthUser>(`/api/auth/users/${userId}/role`, {
+      method: 'PUT',
+      body: { role }
+    })
+
+    if (currentUser.value?.id === updated.id) {
+      currentUser.value = updated
+    }
+
+    return updated
   }
 
   return {
-    users,
     currentUser,
     isAuthenticated,
     hydrate,
@@ -164,6 +155,8 @@ export function useAuth() {
     login,
     logout,
     updateProfile,
+    listUsers,
+    updateUserRole,
     emptyProfile
   }
 }
