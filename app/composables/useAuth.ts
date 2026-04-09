@@ -65,7 +65,8 @@ export function useAuth() {
 
     hydratePromise = (async () => {
       try {
-        const user = await $fetch<AuthUser>('/api/auth/me')
+        const requestFetch = import.meta.server ? useRequestFetch() : $fetch
+        const user = await requestFetch<AuthUser>('/api/auth/me')
         currentUser.value = user
       } catch {
         currentUser.value = null

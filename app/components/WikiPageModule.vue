@@ -21,6 +21,13 @@ interface TocItem {
 }
 
 type GuideMode = 'view' | 'create' | 'edit'
+type ToastKind = 'success' | 'error' | 'info'
+
+interface ToastMessage {
+  id: string
+  kind: ToastKind
+  text: string
+}
 
 const auth = useAuth()
 const articles = ref<GuideArticle[]>([])
@@ -29,7 +36,9 @@ const status = ref('Ready')
 const selectedArticleId = ref('')
 const activeMode = ref<GuideMode>('view')
 const isBusy = ref(false)
+const isSaving = ref(false)
 const inlineImageInput = ref<HTMLInputElement | null>(null)
+const toasts = ref<ToastMessage[]>([])
 
 const editor = ref<GuideArticle>({
   id: '',
@@ -225,6 +234,14 @@ function setStatus(message: string) {
   status.value = message
 }
 
+function notify(kind: ToastKind, text: string) {
+  const id = createId()
+  toasts.value.push({ id, kind, text })
+  window.setTimeout(() => {
+    toasts.value = toasts.value.filter((item) => item.id !== id)
+  }, 3000)
+}
+
 function articleForEditor(article: GuideArticle): GuideArticle {
   return JSON.parse(JSON.stringify(article)) as GuideArticle
 }
@@ -267,6 +284,7 @@ function startEditArticle() {
   activeMode.value = 'edit'
   editor.value = articleForEditor(selectedArticle.value)
   setStatus(`Editing "${selectedArticle.value.title}".`)
+  notify('info', `Editing "${selectedArticle.value.title}".`)
 }
 
 function cancelEditing() {
@@ -359,6 +377,8 @@ async function saveArticle() {
   }
 
   isBusy.value = true
+  isSaving.value = true
+  setStatus('Saving article...')
   try {
     const payload = {
       title: editor.value.title.trim(),
@@ -382,9 +402,11 @@ async function saveArticle() {
     if (existingIndex >= 0) {
       articles.value.splice(existingIndex, 1, saved)
       setStatus(`Updated "${saved.title}".`)
+      notify('success', `Article updated: "${saved.title}"`)
     } else {
       articles.value.unshift(saved)
       setStatus(`Created "${saved.title}".`)
+      notify('success', `Article created: "${saved.title}"`)
     }
 
     articles.value.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
@@ -394,7 +416,9 @@ async function saveArticle() {
   } catch (error) {
     console.error(error)
     setStatus('Could not save article to database.')
+    notify('error', 'Could not save article. Please try again.')
   } finally {
+    isSaving.value = false
     isBusy.value = false
   }
 }
@@ -432,9 +456,11 @@ async function deleteArticle(articleId: string) {
     }
 
     setStatus(`Deleted "${article.title}".`)
+    notify('success', `Article deleted: "${article.title}"`)
   } catch (error) {
     console.error(error)
     setStatus('Could not delete article from database.')
+    notify('error', 'Could not delete article. Please try again.')
   } finally {
     isBusy.value = false
   }
@@ -459,9 +485,11 @@ async function onCoverImageChange(event: Event) {
   try {
     editor.value.coverImage = await readAsDataUrl(file)
     setStatus('Cover image uploaded.')
+    notify('success', 'Cover image uploaded.')
   } catch (error) {
     console.error(error)
     setStatus('Could not upload cover image.')
+    notify('error', 'Could not upload cover image.')
   }
 }
 
@@ -482,9 +510,11 @@ async function onInlineImageChange(event: Event) {
     const snippet = `\n![${alt}](${imageSource})\n`
     editor.value.markdown = `${editor.value.markdown.trimEnd()}${snippet}`
     setStatus('Image added to markdown content.')
+    notify('success', 'Image added to markdown content.')
   } catch (error) {
     console.error(error)
     setStatus('Could not add image to markdown.')
+    notify('error', 'Could not add image to markdown.')
   } finally {
     target.value = ''
   }
@@ -502,12 +532,32 @@ function prettyDate(value: string) {
 
 <template>
   <section class="module-surface">
+    <div class="pointer-events-none fixed right-4 top-4 z-50 flex w-[22rem] max-w-[92vw] flex-col gap-2">
+      <div
+        v-for="toast in toasts"
+        :key="toast.id"
+        class="toast-item pointer-events-auto rounded-xl border px-3 py-2 text-sm shadow-lg"
+        :class="
+          toast.kind === 'success'
+            ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
+            : toast.kind === 'error'
+              ? 'border-rose-300 bg-rose-50 text-rose-900'
+              : 'border-sky-300 bg-sky-50 text-sky-900'
+        "
+      >
+        {{ toast.text }}
+      </div>
+    </div>
+
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div>
         <h2 class="module-title text-2xl font-bold">Real Estate Guide</h2>
         <p class="mt-1 text-sm text-slate-600">Manage admin-focused blog articles with markdown writing and image uploads.</p>
       </div>
-      <p class="status-pill">{{ status }}</p>
+      <div class="flex items-center gap-2">
+        <span v-if="isSaving" class="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">Saving...</span>
+        <p class="status-pill">{{ status }}</p>
+      </div>
     </div>
 
     <div class="mt-5 grid gap-4 xl:grid-cols-[20rem,1fr]">
@@ -635,7 +685,9 @@ function prettyDate(value: string) {
           </div>
 
           <div class="mt-4 flex flex-wrap gap-2">
-            <button type="button" class="btn-primary" @click="saveArticle">Save Article</button>
+            <button type="button" class="btn-primary" :class="isSaving ? 'opacity-70 cursor-wait' : ''" :disabled="isSaving" @click="saveArticle">
+              {{ isSaving ? 'Saving...' : 'Save Article' }}
+            </button>
             <p v-if="!canManageArticles" class="rounded-lg bg-amber-100 px-3 py-2 text-xs text-amber-900">Viewer role cannot create, edit, or delete articles.</p>
             <p class="rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-600">Markdown supports headings, lists, links, and uploaded images.</p>
           </div>
@@ -714,6 +766,21 @@ function prettyDate(value: string) {
 </template>
 
 <style scoped>
+.toast-item {
+  animation: toast-enter 0.2s ease-out;
+}
+
+@keyframes toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .markdown-preview :deep(h1),
 .markdown-preview :deep(h2),
 .markdown-preview :deep(h3),
