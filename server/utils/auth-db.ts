@@ -1,9 +1,7 @@
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
 import type { H3Event } from 'h3'
 import { createError, deleteCookie, getCookie, setCookie } from 'h3'
-import Database from 'better-sqlite3'
+import { getSupabaseAdminClient } from './supabase-admin'
 
 export type ProfileSettings = {
   establishmentName: string
@@ -27,8 +25,6 @@ export type AuthPublicUser = {
   profile: ProfileSettings
 }
 
-type Db = Database.Database
-
 type UserRow = {
   id: string
   name: string
@@ -36,23 +32,20 @@ type UserRow = {
   role: string
   password_hash: string
   password_salt: string
-  profile_json: string
+  profile_json: unknown
+  created_at?: string
+  updated_at?: string
 }
 
-declare global {
-  // eslint-disable-next-line no-var
-  var __authDb: Db | undefined
+type SessionRow = {
+  token: string
+  user_id: string
+  expires_at: string
 }
 
 const AUTH_COOKIE = 'webtools-auth-session'
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30
 const ROLE_VALUES: UserRole[] = ['admin', 'editor', 'viewer']
-
-function ensureDbFilePath() {
-  const filePath = join(process.cwd(), '.data', 'auth.sqlite')
-  mkdirSync(dirname(filePath), { recursive: true })
-  return filePath
-}
 
 export function emptyProfile(): ProfileSettings {
   return {
@@ -113,70 +106,54 @@ function normalizeRole(value: unknown): UserRole {
 }
 
 function toPublicUser(row: UserRow): AuthPublicUser {
-  let profile: ProfileSettings
-  try {
-    profile = sanitizeProfile(JSON.parse(row.profile_json))
-  } catch {
-    profile = emptyProfile()
-  }
-
   return {
     id: row.id,
     name: row.name,
     email: row.email,
     role: normalizeRole(row.role),
-    profile
+    profile: sanitizeProfile(row.profile_json)
   }
 }
 
-function ensureRoleColumn(db: Db) {
-  const columns = db.prepare('PRAGMA table_info(auth_users)').all() as Array<{ name: string }>
-  const hasRole = columns.some((column) => column.name === 'role')
-  if (!hasRole) {
-    db.exec("ALTER TABLE auth_users ADD COLUMN role TEXT NOT NULL DEFAULT 'viewer'")
-  }
+function throwSupabaseError(error: { message: string } | null, fallbackMessage: string): never {
+  throw createError({
+    statusCode: 500,
+    statusMessage: error?.message || fallbackMessage
+  })
 }
 
-export function getAuthDb() {
-  if (globalThis.__authDb) {
-    return globalThis.__authDb
+async function getUserById(id: string) {
+  const supabase = getSupabaseAdminClient()
+  const { data, error } = await supabase
+    .from('auth_users')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle<UserRow>()
+
+  if (error) {
+    throwSupabaseError(error, 'Could not load user.')
   }
 
-  const db = new Database(ensureDbFilePath())
-  db.pragma('journal_mode = WAL')
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS auth_users (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      email TEXT NOT NULL UNIQUE,
-      role TEXT NOT NULL DEFAULT 'viewer',
-      password_hash TEXT NOT NULL,
-      password_salt TEXT NOT NULL,
-      profile_json TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS auth_sessions (
-      token TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      expires_at TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES auth_users(id) ON DELETE CASCADE
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_auth_users_email ON auth_users(email);
-    CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
-  `)
-
-  ensureRoleColumn(db)
-
-  globalThis.__authDb = db
-  return db
+  return data
 }
 
-export function registerUser(input: { name: string; email: string; password: string }) {
-  const db = getAuthDb()
+async function getUserByEmail(email: string) {
+  const supabase = getSupabaseAdminClient()
+  const { data, error } = await supabase
+    .from('auth_users')
+    .select('*')
+    .eq('email', email)
+    .maybeSingle<UserRow>()
+
+  if (error) {
+    throwSupabaseError(error, 'Could not load user by email.')
+  }
+
+  return data
+}
+
+export async function registerUser(input: { name: string; email: string; password: string }) {
+  const supabase = getSupabaseAdminClient()
   const email = input.email.trim().toLowerCase()
   const name = input.name.trim()
 
@@ -188,35 +165,41 @@ export function registerUser(input: { name: string; email: string; password: str
     throw createError({ statusCode: 400, statusMessage: 'Password must be at least 6 characters.' })
   }
 
-  const existing = db.prepare('SELECT id FROM auth_users WHERE email = ? LIMIT 1').get(email) as { id: string } | undefined
+  const existing = await getUserByEmail(email)
   if (existing) {
     throw createError({ statusCode: 409, statusMessage: 'An account with this email already exists.' })
   }
 
-  const id = randomUUID()
-  const now = new Date().toISOString()
   const { hash, salt } = hashPassword(input.password)
-  const profile = JSON.stringify(emptyProfile())
-  const role: UserRole = 'viewer'
+  const now = new Date().toISOString()
 
-  db.prepare(
-    `INSERT INTO auth_users (id, name, email, role, password_hash, password_salt, profile_json, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, name, email, role, hash, salt, profile, now, now)
+  const { data, error } = await supabase
+    .from('auth_users')
+    .insert({
+      id: randomUUID(),
+      name,
+      email,
+      role: 'viewer',
+      password_hash: hash,
+      password_salt: salt,
+      profile_json: emptyProfile(),
+      created_at: now,
+      updated_at: now
+    })
+    .select('*')
+    .single<UserRow>()
 
-  const row = db.prepare('SELECT * FROM auth_users WHERE id = ? LIMIT 1').get(id) as UserRow | undefined
-  if (!row) {
-    throw createError({ statusCode: 500, statusMessage: 'Could not create account.' })
+  if (error || !data) {
+    throwSupabaseError(error, 'Could not create account.')
   }
 
-  return toPublicUser(row)
+  return toPublicUser(data)
 }
 
-export function loginUser(input: { email: string; password: string }) {
-  const db = getAuthDb()
+export async function loginUser(input: { email: string; password: string }) {
   const email = input.email.trim().toLowerCase()
+  const row = await getUserByEmail(email)
 
-  const row = db.prepare('SELECT * FROM auth_users WHERE email = ? LIMIT 1').get(email) as UserRow | undefined
   if (!row) {
     throw createError({ statusCode: 401, statusMessage: 'Invalid email or password.' })
   }
@@ -229,14 +212,24 @@ export function loginUser(input: { email: string; password: string }) {
   return toPublicUser(row)
 }
 
-export function createSession(event: H3Event, userId: string) {
-  const db = getAuthDb()
+export async function createSession(event: H3Event, userId: string) {
+  const supabase = getSupabaseAdminClient()
   const token = randomBytes(32).toString('hex')
   const now = new Date()
   const expiresAt = new Date(now.getTime() + SESSION_TTL_MS)
 
-  db.prepare('INSERT INTO auth_sessions (token, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)')
-    .run(token, userId, expiresAt.toISOString(), now.toISOString())
+  const { error } = await supabase
+    .from('auth_sessions')
+    .insert({
+      token,
+      user_id: userId,
+      expires_at: expiresAt.toISOString(),
+      created_at: now.toISOString()
+    })
+
+  if (error) {
+    throwSupabaseError(error, 'Could not create session.')
+  }
 
   setCookie(event, AUTH_COOKIE, token, {
     httpOnly: true,
@@ -247,11 +240,15 @@ export function createSession(event: H3Event, userId: string) {
   })
 }
 
-export function clearAuthSession(event: H3Event) {
-  const db = getAuthDb()
+export async function clearAuthSession(event: H3Event) {
+  const supabase = getSupabaseAdminClient()
   const token = getCookie(event, AUTH_COOKIE)
+
   if (token) {
-    db.prepare('DELETE FROM auth_sessions WHERE token = ?').run(token)
+    const { error } = await supabase.from('auth_sessions').delete().eq('token', token)
+    if (error) {
+      throwSupabaseError(error, 'Could not clear session.')
+    }
   }
 
   deleteCookie(event, AUTH_COOKIE, {
@@ -262,31 +259,43 @@ export function clearAuthSession(event: H3Event) {
   })
 }
 
-export function getSessionUser(event: H3Event): AuthPublicUser | null {
-  const db = getAuthDb()
+export async function getSessionUser(event: H3Event): Promise<AuthPublicUser | null> {
+  const supabase = getSupabaseAdminClient()
   const token = getCookie(event, AUTH_COOKIE)
   if (!token) {
     return null
   }
 
-  const row = db.prepare(
-    `SELECT u.*
-     FROM auth_sessions s
-     JOIN auth_users u ON u.id = s.user_id
-     WHERE s.token = ? AND datetime(s.expires_at) > datetime(?)
-     LIMIT 1`
-  ).get(token, new Date().toISOString()) as UserRow | undefined
+  const { data: session, error: sessionError } = await supabase
+    .from('auth_sessions')
+    .select('*')
+    .eq('token', token)
+    .maybeSingle<SessionRow>()
 
-  if (!row) {
-    db.prepare('DELETE FROM auth_sessions WHERE token = ?').run(token)
+  if (sessionError) {
+    throwSupabaseError(sessionError, 'Could not load session.')
+  }
+
+  if (!session) {
     return null
   }
 
-  return toPublicUser(row)
+  if (new Date(session.expires_at).getTime() <= Date.now()) {
+    await supabase.from('auth_sessions').delete().eq('token', token)
+    return null
+  }
+
+  const userRow = await getUserById(session.user_id)
+  if (!userRow) {
+    await supabase.from('auth_sessions').delete().eq('token', token)
+    return null
+  }
+
+  return toPublicUser(userRow)
 }
 
-export function requireSessionUser(event: H3Event): AuthPublicUser {
-  const user = getSessionUser(event)
+export async function requireSessionUser(event: H3Event): Promise<AuthPublicUser> {
+  const user = await getSessionUser(event)
   if (!user) {
     throw createError({ statusCode: 401, statusMessage: 'Authentication required.' })
   }
@@ -294,8 +303,8 @@ export function requireSessionUser(event: H3Event): AuthPublicUser {
   return user
 }
 
-export function requireRole(event: H3Event, allowed: UserRole[]) {
-  const user = requireSessionUser(event)
+export async function requireRole(event: H3Event, allowed: UserRole[]) {
+  const user = await requireSessionUser(event)
   if (!allowed.includes(user.role)) {
     throw createError({ statusCode: 403, statusMessage: 'You do not have permission for this action.' })
   }
@@ -303,71 +312,100 @@ export function requireRole(event: H3Event, allowed: UserRole[]) {
   return user
 }
 
-export function listUsers(requestedByUserId: string) {
-  const db = getAuthDb()
-  const requester = db.prepare('SELECT role FROM auth_users WHERE id = ? LIMIT 1').get(requestedByUserId) as { role: string } | undefined
+export async function listUsers(requestedByUserId: string) {
+  const requester = await getUserById(requestedByUserId)
   if (!requester || normalizeRole(requester.role) !== 'admin') {
     throw createError({ statusCode: 403, statusMessage: 'Admin access required.' })
   }
 
-  const rows = db
-    .prepare('SELECT * FROM auth_users ORDER BY datetime(created_at) ASC')
-    .all() as UserRow[]
+  const supabase = getSupabaseAdminClient()
+  const { data, error } = await supabase
+    .from('auth_users')
+    .select('*')
+    .order('created_at', { ascending: true })
 
-  return rows.map(toPublicUser)
+  if (error) {
+    throwSupabaseError(error, 'Could not list users.')
+  }
+
+  return (data || []).map((row) => toPublicUser(row as UserRow))
 }
 
-export function updateUserRole(requestedByUserId: string, targetUserId: string, nextRole: UserRole) {
-  const db = getAuthDb()
-  const requester = db.prepare('SELECT role FROM auth_users WHERE id = ? LIMIT 1').get(requestedByUserId) as { role: string } | undefined
-  if (!requester || normalizeRole(requester.role) !== 'admin') {
-    throw createError({ statusCode: 403, statusMessage: 'Admin access required.' })
-  }
-
-  const target = db.prepare('SELECT id, role FROM auth_users WHERE id = ? LIMIT 1').get(targetUserId) as { id: string; role: string } | undefined
-  if (!target) {
-    throw createError({ statusCode: 404, statusMessage: 'User not found.' })
-  }
-
+export async function updateUserRole(requestedByUserId: string, targetUserId: string, nextRole: UserRole) {
   if (!ROLE_VALUES.includes(nextRole)) {
     throw createError({ statusCode: 400, statusMessage: 'Invalid role.' })
   }
 
+  const requester = await getUserById(requestedByUserId)
+  if (!requester || normalizeRole(requester.role) !== 'admin') {
+    throw createError({ statusCode: 403, statusMessage: 'Admin access required.' })
+  }
+
+  const target = await getUserById(targetUserId)
+  if (!target) {
+    throw createError({ statusCode: 404, statusMessage: 'User not found.' })
+  }
+
+  const supabase = getSupabaseAdminClient()
+
   if (target.id === requestedByUserId && nextRole !== 'admin') {
-    const admins = db.prepare("SELECT COUNT(*) as total FROM auth_users WHERE role = 'admin'").get() as { total: number }
-    if (admins.total <= 1) {
+    const { count, error } = await supabase
+      .from('auth_users')
+      .select('id', { count: 'exact', head: true })
+      .eq('role', 'admin')
+
+    if (error) {
+      throwSupabaseError(error, 'Could not verify admin count.')
+    }
+
+    if ((count || 0) <= 1) {
       throw createError({ statusCode: 400, statusMessage: 'At least one admin is required.' })
     }
   }
 
   if (normalizeRole(target.role) === 'admin' && nextRole !== 'admin') {
-    const admins = db.prepare("SELECT COUNT(*) as total FROM auth_users WHERE role = 'admin'").get() as { total: number }
-    if (admins.total <= 1) {
+    const { count, error } = await supabase
+      .from('auth_users')
+      .select('id', { count: 'exact', head: true })
+      .eq('role', 'admin')
+
+    if (error) {
+      throwSupabaseError(error, 'Could not verify admin count.')
+    }
+
+    if ((count || 0) <= 1) {
       throw createError({ statusCode: 400, statusMessage: 'At least one admin is required.' })
     }
   }
 
-  const now = new Date().toISOString()
-  db.prepare('UPDATE auth_users SET role = ?, updated_at = ? WHERE id = ?').run(nextRole, now, targetUserId)
+  const { data, error } = await supabase
+    .from('auth_users')
+    .update({ role: nextRole, updated_at: new Date().toISOString() })
+    .eq('id', targetUserId)
+    .select('*')
+    .single<UserRow>()
 
-  const row = db.prepare('SELECT * FROM auth_users WHERE id = ? LIMIT 1').get(targetUserId) as UserRow | undefined
-  if (!row) {
-    throw createError({ statusCode: 404, statusMessage: 'User not found.' })
+  if (error || !data) {
+    throwSupabaseError(error, 'Could not update user role.')
   }
 
-  return toPublicUser(row)
+  return toPublicUser(data)
 }
 
-export function updateUserProfile(userId: string, profile: ProfileSettings) {
-  const db = getAuthDb()
-  const now = new Date().toISOString()
-  db.prepare('UPDATE auth_users SET profile_json = ?, updated_at = ? WHERE id = ?')
-    .run(JSON.stringify(sanitizeProfile(profile)), now, userId)
+export async function updateUserProfile(userId: string, profile: ProfileSettings) {
+  const supabase = getSupabaseAdminClient()
+  const sanitized = sanitizeProfile(profile)
 
-  const row = db.prepare('SELECT * FROM auth_users WHERE id = ? LIMIT 1').get(userId) as UserRow | undefined
-  if (!row) {
-    throw createError({ statusCode: 404, statusMessage: 'User not found.' })
+  const { data, error } = await supabase
+    .from('auth_users')
+    .update({ profile_json: sanitized, updated_at: new Date().toISOString() })
+    .eq('id', userId)
+    .select('*')
+    .single<UserRow>()
+
+  if (error || !data) {
+    throwSupabaseError(error, 'Could not update profile.')
   }
 
-  return toPublicUser(row)
+  return toPublicUser(data)
 }

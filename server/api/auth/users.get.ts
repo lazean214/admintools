@@ -1,6 +1,6 @@
 import { listUsers, requireSessionUser } from '../../utils/auth-db'
 
-export default defineEventHandler((event) => {
-  const requester = requireSessionUser(event)
-  return listUsers(requester.id)
+export default defineEventHandler(async (event) => {
+  const requester = await requireSessionUser(event)
+  return await listUsers(requester.id)
 })

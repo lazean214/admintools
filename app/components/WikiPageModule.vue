@@ -8,6 +8,7 @@ interface GuideArticle {
   slug: string
   excerpt: string
   coverImage: string
+  hashtags: string[]
   markdown: string
   createdAt?: string
   updatedAt: string
@@ -36,8 +37,16 @@ const editor = ref<GuideArticle>({
   slug: '',
   excerpt: '',
   coverImage: '',
+  hashtags: [],
   markdown: '',
   updatedAt: ''
+})
+
+const hashtagsText = computed({
+  get: () => editor.value.hashtags.map((tag) => `#${tag}`).join(' '),
+  set: (value: string) => {
+    editor.value.hashtags = parseHashtagsFromText(value)
+  }
 })
 
 const markdown = new MarkdownIt({
@@ -56,7 +65,7 @@ const filteredArticles = computed(() => {
   }
 
   return articles.value.filter((article) => {
-    const blob = [article.title, article.slug, article.excerpt, article.markdown].join(' ').toLowerCase()
+    const blob = [article.title, article.slug, article.excerpt, article.markdown, article.hashtags.join(' ')].join(' ').toLowerCase()
     return blob.includes(keyword)
   })
 })
@@ -95,6 +104,10 @@ const previewTitle = computed(() => {
 
 const previewExcerpt = computed(() => {
   return previewArticle.value?.excerpt || 'Add an excerpt for the article list.'
+})
+
+const previewHashtags = computed(() => {
+  return previewArticle.value?.hashtags || []
 })
 
 const previewCoverImage = computed(() => {
@@ -183,6 +196,31 @@ function slugifyHeading(value: string) {
     .replace(/-+/g, '-') || 'section'
 }
 
+function parseHashtagsFromText(value: string) {
+  const parts = value.split(/[,\s]+/)
+  const unique = new Set<string>()
+
+  for (const item of parts) {
+    const clean = item
+      .trim()
+      .replace(/^#+/, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '')
+      .replace(/-+/g, '-')
+
+    if (!clean) {
+      continue
+    }
+
+    unique.add(clean)
+    if (unique.size >= 20) {
+      break
+    }
+  }
+
+  return [...unique]
+}
+
 function setStatus(message: string) {
   status.value = message
 }
@@ -198,6 +236,7 @@ function defaultArticle(): GuideArticle {
     slug: '',
     excerpt: '',
     coverImage: '',
+    hashtags: [],
     markdown: '# New Article\n\nWrite your guide content here.\n\n## First Section\n\nUse markdown headings and bullet lists to keep it readable.',
     updatedAt: ''
   }
@@ -258,6 +297,9 @@ function sanitizeArticle(value: unknown): GuideArticle | null {
     slug: typeof candidate.slug === 'string' ? candidate.slug : makeSlug(candidate.title),
     excerpt: typeof candidate.excerpt === 'string' ? candidate.excerpt : '',
     coverImage: typeof candidate.coverImage === 'string' ? candidate.coverImage : '',
+    hashtags: Array.isArray(candidate.hashtags)
+      ? parseHashtagsFromText(candidate.hashtags.join(' '))
+      : [],
     markdown: typeof candidate.markdown === 'string' ? candidate.markdown : '',
     updatedAt: typeof candidate.updatedAt === 'string' ? candidate.updatedAt : new Date().toISOString()
   }
@@ -322,6 +364,7 @@ async function saveArticle() {
       title: editor.value.title.trim(),
       excerpt: editor.value.excerpt.trim(),
       coverImage: editor.value.coverImage.trim(),
+      hashtags: editor.value.hashtags,
       markdown: editor.value.markdown.trim()
     }
 
@@ -499,6 +542,15 @@ function prettyDate(value: string) {
             <p class="line-clamp-2 font-semibold text-slate-900">{{ article.title }}</p>
             <p class="mt-1 text-xs text-slate-500">/{{ article.slug }}</p>
             <p class="mt-1 line-clamp-2 text-xs text-slate-500">{{ article.excerpt || 'No excerpt added yet.' }}</p>
+            <div v-if="article.hashtags.length > 0" class="mt-2 flex flex-wrap gap-1">
+              <span
+                v-for="tag in article.hashtags"
+                :key="`${article.id}-${tag}`"
+                class="rounded-full bg-teal-100 px-2 py-0.5 text-[11px] font-semibold text-teal-800"
+              >
+                #{{ tag }}
+              </span>
+            </div>
             <p class="mt-2 text-xs text-slate-500">Updated: {{ prettyDate(article.updatedAt) }}</p>
             <button
               v-if="canManageArticles"
@@ -537,6 +589,17 @@ function prettyDate(value: string) {
             <label class="text-sm font-semibold">
               Excerpt
               <input v-model="editor.excerpt" type="text" class="field-control mt-1" placeholder="Brief summary shown in article list" >
+            </label>
+
+            <label class="text-sm font-semibold md:col-span-2">
+              Hashtags (categories)
+              <input
+                v-model="hashtagsText"
+                type="text"
+                class="field-control mt-1"
+                placeholder="#rera #listing-noc #admin-guide"
+              >
+              <span class="mt-1 block text-xs text-slate-500">Separate with spaces or commas. Example: #rera, #contracts</span>
             </label>
 
             <label class="text-sm font-semibold md:col-span-2">
@@ -613,6 +676,16 @@ function prettyDate(value: string) {
 
               <h4 class="module-title text-2xl font-bold text-slate-900">{{ previewTitle }}</h4>
               <p class="mt-2 text-sm text-slate-600">{{ previewExcerpt }}</p>
+
+              <div v-if="previewHashtags.length > 0" class="mt-3 flex flex-wrap gap-2">
+                <span
+                  v-for="tag in previewHashtags"
+                  :key="`preview-${tag}`"
+                  class="rounded-full bg-teal-100 px-2.5 py-1 text-xs font-semibold text-teal-800"
+                >
+                  #{{ tag }}
+                </span>
+              </div>
 
               <div v-if="tableOfContents.length > 0" class="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <p class="text-xs font-bold uppercase tracking-wider text-slate-600">Contents</p>

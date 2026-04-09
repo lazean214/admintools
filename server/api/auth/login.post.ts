@@ -8,11 +8,11 @@ type LoginBody = {
 export default defineEventHandler(async (event) => {
   const body = await readBody<LoginBody>(event)
 
-  const user = loginUser({
+  const user = await loginUser({
     email: body.email || '',
     password: body.password || ''
   })
 
-  createSession(event, user.id)
+  await createSession(event, user.id)
   return user
 })

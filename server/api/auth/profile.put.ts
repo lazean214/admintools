@@ -13,8 +13,8 @@ type ProfileBody = {
 }
 
 export default defineEventHandler(async (event) => {
-  const user = requireSessionUser(event)
+  const user = await requireSessionUser(event)
   const body = await readBody<ProfileBody>(event)
-  const updated = updateUserProfile(user.id, sanitizeProfile(body))
+  const updated = await updateUserProfile(user.id, sanitizeProfile(body))
   return updated
 })

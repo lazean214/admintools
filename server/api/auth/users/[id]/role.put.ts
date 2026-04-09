@@ -6,7 +6,7 @@ type RoleBody = {
 }
 
 export default defineEventHandler(async (event) => {
-  const requester = requireSessionUser(event)
+  const requester = await requireSessionUser(event)
   const targetUserId = getRouterParam(event, 'id')
   if (!targetUserId) {
     throw createError({ statusCode: 400, statusMessage: 'User id is required.' })
@@ -18,5 +18,5 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Role is required.' })
   }
 
-  return updateUserRole(requester.id, targetUserId, role)
+  return await updateUserRole(requester.id, targetUserId, role)
 })

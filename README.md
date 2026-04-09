@@ -34,9 +34,8 @@ Nuxt 4 application for real estate document workflows, including template-based 
 
 ## Data Storage
 
-- SQLite databases are created in `.data/`:
-	- `.data/auth.sqlite` for users, roles, sessions
-	- `.data/guide.sqlite` for guide articles
+- Supabase Postgres stores users, sessions, roles, profiles, and guide articles.
+- Apply schema from `supabase/schema.sql` in your Supabase SQL editor.
 - Session auth is cookie-based (`HttpOnly`, `SameSite=Lax`).
 - Uploaded images in profile/guide are stored as data URLs in the database.
 
@@ -85,6 +84,15 @@ Install dependencies:
 npm install
 ```
 
+Create environment variables:
+
+```bash
+SUPABASE_URL=your_supabase_project_url
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+```
+
+Then run SQL from `supabase/schema.sql` in Supabase before starting the app.
+
 ## Development
 
 Run local dev server:
@@ -125,7 +133,7 @@ node .output/server/index.mjs
 - Vue 3
 - TypeScript
 - Tailwind CSS
-- better-sqlite3
+- @supabase/supabase-js
 - markdown-it
 - markdown-it-anchor
 - pdf-lib

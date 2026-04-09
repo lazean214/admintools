@@ -9,12 +9,12 @@ type RegisterBody = {
 export default defineEventHandler(async (event) => {
   const body = await readBody<RegisterBody>(event)
 
-  const user = registerUser({
+  const user = await registerUser({
     name: body.name || '',
     email: body.email || '',
     password: body.password || ''
   })
 
-  createSession(event, user.id)
+  await createSession(event, user.id)
   return user
 })
