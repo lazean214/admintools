@@ -1,6 +1,15 @@
 <script setup lang="ts">
 const auth = useAuth()
 
+useSeoMeta({
+  title: 'Home',
+  description: 'Access real estate admin tools for Form I, PDF editing, image utilities, e-signatures, and watermark workflows from one dashboard.',
+  ogTitle: 'Real Estate Web Tools Dashboard',
+  ogDescription: 'Open Form I, PDF template filler, PDF image extractor, image resize, e-signature, and watermark tools in one place.',
+  twitterTitle: 'Real Estate Web Tools Dashboard',
+  twitterDescription: 'Document and image utility suite for real estate workflows.'
+})
+
 onMounted(() => {
   auth.hydrate()
 })

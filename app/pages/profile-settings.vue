@@ -2,6 +2,15 @@
 definePageMeta({
   middleware: ['auth']
 })
+
+useSeoMeta({
+  title: 'Profile Settings',
+  description: 'Manage local profile defaults such as logo, stamp, and office details for faster Form I completion.',
+  ogTitle: 'Profile Settings | Real Estate Web Tools',
+  ogDescription: 'Save reusable profile details in your browser for consistent form generation.',
+  twitterTitle: 'Profile Settings | Real Estate Web Tools',
+  twitterDescription: 'Configure browser-stored defaults for your document workflows.'
+})
 </script>
 
 <template>

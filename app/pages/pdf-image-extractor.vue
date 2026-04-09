@@ -1,3 +1,14 @@
+<script setup lang="ts">
+useSeoMeta({
+  title: 'PDF Image Extractor',
+  description: 'Extract embedded images from PDF files with preview and bulk download support.',
+  ogTitle: 'PDF Image Extractor Tool',
+  ogDescription: 'Pull images from PDFs and download selected files quickly.',
+  twitterTitle: 'PDF Image Extractor Tool',
+  twitterDescription: 'Extract and download images from PDF documents.'
+})
+</script>
+
 <template>
   <div class="app-shell md:px-8 md:py-8">
     <div class="app-container space-y-6">

@@ -1,3 +1,14 @@
+<script setup lang="ts">
+useSeoMeta({
+  title: 'Image Resize',
+  description: 'Resize one or many images while preserving aspect ratio and previewing output before export.',
+  ogTitle: 'Image Resize Tool',
+  ogDescription: 'Batch resize images with controlled dimensions and quality.',
+  twitterTitle: 'Image Resize Tool',
+  twitterDescription: 'Resize single or multiple images for your listing workflow.'
+})
+</script>
+
 <template>
   <div class="app-shell md:px-8 md:py-8">
     <div class="app-container space-y-6">

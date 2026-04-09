@@ -1,3 +1,14 @@
+<script setup lang="ts">
+useSeoMeta({
+  title: 'Form I / Agent To Agent',
+  description: 'Fill Form I agent-to-agent fields and generate a completed PDF quickly and accurately.',
+  ogTitle: 'Form I Agent To Agent Tool',
+  ogDescription: 'Streamline Form I preparation with guided fields and PDF generation.',
+  twitterTitle: 'Form I Agent To Agent Tool',
+  twitterDescription: 'Fill and export Form I agent-to-agent documents as PDF.'
+})
+</script>
+
 <template>
   <div class="app-shell md:px-8 md:py-8">
     <div class="app-container space-y-6">

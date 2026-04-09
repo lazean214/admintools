@@ -1,3 +1,14 @@
+<script setup lang="ts">
+useSeoMeta({
+  title: 'PDF Template Filler',
+  description: 'Load a fillable PDF template, map fields, and generate a completed export for document workflows.',
+  ogTitle: 'PDF Template Filler Tool',
+  ogDescription: 'Populate fillable PDF templates and produce clean final documents.',
+  twitterTitle: 'PDF Template Filler Tool',
+  twitterDescription: 'Fill and export PDF templates for real estate operations.'
+})
+</script>
+
 <template>
   <div class="app-shell md:px-8 md:py-8">
     <div class="app-container space-y-6">

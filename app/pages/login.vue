@@ -2,6 +2,15 @@
 definePageMeta({
   middleware: ['guest']
 })
+
+useSeoMeta({
+  title: 'Login',
+  description: 'Sign in to access your saved profile defaults and private account features.',
+  ogTitle: 'Login | Real Estate Web Tools',
+  ogDescription: 'Access your account to manage saved settings and faster form workflows.',
+  twitterTitle: 'Login | Real Estate Web Tools',
+  twitterDescription: 'Sign in to your account and continue your workflow.'
+})
 </script>
 
 <template>

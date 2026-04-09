@@ -2,6 +2,15 @@
 definePageMeta({
   middleware: ['guest']
 })
+
+useSeoMeta({
+  title: 'Create Account',
+  description: 'Register to unlock profile settings and save default information for Form I workflows.',
+  ogTitle: 'Create Account | Real Estate Web Tools',
+  ogDescription: 'Create an account for private settings and faster real estate form preparation.',
+  twitterTitle: 'Create Account | Real Estate Web Tools',
+  twitterDescription: 'Register and save your profile defaults for repeated workflows.'
+})
 </script>
 
 <template>

@@ -1,3 +1,14 @@
+<script setup lang="ts">
+useSeoMeta({
+  title: 'Watermark',
+  description: 'Add text or image watermarks with custom position, opacity, and scale controls.',
+  ogTitle: 'Watermark Tool',
+  ogDescription: 'Apply configurable watermarks to protect your images.',
+  twitterTitle: 'Watermark Tool',
+  twitterDescription: 'Protect listing images with text or image watermarks.'
+})
+</script>
+
 <template>
   <div class="app-shell md:px-8 md:py-8">
     <div class="app-container space-y-6">

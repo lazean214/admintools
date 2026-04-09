@@ -1,3 +1,14 @@
+<script setup lang="ts">
+useSeoMeta({
+  title: 'Contact',
+  description: 'Send bug reports and feature requests for the Real Estate Web Tools suite.',
+  ogTitle: 'Contact Real Estate Web Tools',
+  ogDescription: 'Reach out with support requests, bug reports, and feature ideas.',
+  twitterTitle: 'Contact Real Estate Web Tools',
+  twitterDescription: 'Support and feature requests for document and image tools.'
+})
+</script>
+
 <template>
   <div class="app-shell md:px-8 md:py-8">
     <div class="app-container space-y-6">
