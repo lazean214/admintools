@@ -13,6 +13,85 @@ export type GuideArticleRow = {
   updated_at: string
 }
 
+export type GuideArticle = {
+  id: string
+  title: string
+  slug: string
+  excerpt: string
+  coverImage: string
+  hashtags: string[]
+  markdown: string
+  createdAt: string
+  updatedAt: string
+}
+
+type GuideCacheStore = {
+  list: GuideArticle[] | null
+  listExpiresAt: number
+  byId: Map<string, GuideArticle>
+}
+
+const GUIDE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __guideCache: GuideCacheStore | undefined
+}
+
+function getGuideCache(): GuideCacheStore {
+  if (!globalThis.__guideCache) {
+    globalThis.__guideCache = {
+      list: null,
+      listExpiresAt: 0,
+      byId: new Map<string, GuideArticle>()
+    }
+  }
+
+  return globalThis.__guideCache
+}
+
+function isListCacheValid(cache: GuideCacheStore) {
+  return Array.isArray(cache.list) && Date.now() < cache.listExpiresAt
+}
+
+function setListCache(items: GuideArticle[]) {
+  const cache = getGuideCache()
+  cache.list = items
+  cache.listExpiresAt = Date.now() + GUIDE_CACHE_TTL_MS
+  cache.byId.clear()
+  for (const item of items) {
+    cache.byId.set(item.id, item)
+  }
+}
+
+function upsertCacheItem(item: GuideArticle) {
+  const cache = getGuideCache()
+  cache.byId.set(item.id, item)
+
+  if (!Array.isArray(cache.list)) {
+    return
+  }
+
+  const index = cache.list.findIndex((entry) => entry.id === item.id)
+  if (index >= 0) {
+    cache.list.splice(index, 1, item)
+  } else {
+    cache.list.unshift(item)
+  }
+
+  cache.list.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+  cache.listExpiresAt = Date.now() + GUIDE_CACHE_TTL_MS
+}
+
+function removeCacheItem(id: string) {
+  const cache = getGuideCache()
+  cache.byId.delete(id)
+  if (Array.isArray(cache.list)) {
+    cache.list = cache.list.filter((entry) => entry.id !== id)
+    cache.listExpiresAt = Date.now() + GUIDE_CACHE_TTL_MS
+  }
+}
+
 function makeSlug(value: string) {
   const normalized = value
     .toLowerCase()
@@ -64,7 +143,7 @@ function throwSupabaseError(error: { message: string } | null, fallbackMessage: 
   })
 }
 
-export function toResponseArticle(row: GuideArticleRow) {
+export function toResponseArticle(row: GuideArticleRow): GuideArticle {
   let hashtags: string[]
   try {
     hashtags = sanitizeHashtags(JSON.parse(row.hashtags_json))
@@ -119,6 +198,11 @@ export async function createUniqueSlug(title: string, excludeId?: string) {
 }
 
 export async function listGuideArticles() {
+  const cache = getGuideCache()
+  if (isListCacheValid(cache) && cache.list) {
+    return cache.list
+  }
+
   const supabase = getSupabaseAdminClient()
   const { data, error } = await supabase
     .from('guide_articles')
@@ -129,10 +213,18 @@ export async function listGuideArticles() {
     throwSupabaseError(error, 'Could not list guide articles.')
   }
 
-  return (data || []).map((row) => toResponseArticle(row as GuideArticleRow))
+  const items = (data || []).map((row) => toResponseArticle(row as GuideArticleRow))
+  setListCache(items)
+  return items
 }
 
 export async function getGuideArticleById(id: string) {
+  const cache = getGuideCache()
+  const cached = cache.byId.get(id)
+  if (cached) {
+    return cached
+  }
+
   const supabase = getSupabaseAdminClient()
   const { data, error } = await supabase
     .from('guide_articles')
@@ -144,7 +236,13 @@ export async function getGuideArticleById(id: string) {
     throwSupabaseError(error, 'Could not load guide article.')
   }
 
-  return data ? toResponseArticle(data) : null
+  if (!data) {
+    return null
+  }
+
+  const item = toResponseArticle(data)
+  cache.byId.set(item.id, item)
+  return item
 }
 
 export async function createGuideArticle(input: {
@@ -179,7 +277,9 @@ export async function createGuideArticle(input: {
     throwSupabaseError(error, 'Could not create guide article.')
   }
 
-  return toResponseArticle(data)
+  const item = toResponseArticle(data)
+  upsertCacheItem(item)
+  return item
 }
 
 export async function updateGuideArticle(
@@ -214,7 +314,9 @@ export async function updateGuideArticle(
     throwSupabaseError(error, 'Could not update guide article.')
   }
 
-  return toResponseArticle(data)
+  const item = toResponseArticle(data)
+  upsertCacheItem(item)
+  return item
 }
 
 export async function deleteGuideArticle(id: string) {
@@ -230,5 +332,10 @@ export async function deleteGuideArticle(id: string) {
     throwSupabaseError(error, 'Could not delete guide article.')
   }
 
-  return Boolean(data)
+  const deleted = Boolean(data)
+  if (deleted) {
+    removeCacheItem(id)
+  }
+
+  return deleted
 }
