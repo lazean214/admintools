@@ -600,7 +600,18 @@ function insertHeading() {
 
 function prettyDate(value: string) {
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? 'Unknown' : date.toLocaleString()
+  if (Number.isNaN(date.getTime())) {
+    return 'Unknown'
+  }
+
+  // Use a deterministic UTC format to avoid SSR/client locale mismatches.
+  const year = date.getUTCFullYear()
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(date.getUTCDate()).padStart(2, '0')
+  const hours = String(date.getUTCHours()).padStart(2, '0')
+  const minutes = String(date.getUTCMinutes()).padStart(2, '0')
+
+  return `${year}-${month}-${day} ${hours}:${minutes} UTC`
 }
 </script>
 
