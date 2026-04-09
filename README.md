@@ -1,14 +1,14 @@
 # WebTools - Real Estate PDF and Image Utilities
 
-Nuxt 4 application for real estate document workflows, including template-based PDF filling, Form I generation, and image/PDF utility tools.
+Nuxt 4 application for real estate document workflows, including template-based PDF filling, Form I generation, guide/article management, and image/PDF utility tools.
 
 ## Main Features
 
 - Form I / Agent-to-Agent PDF generator using fixed legacy coordinate mapping.
-- Listing Agreement PDF filler for `noc_listing_form.pdf` using legacy coordinate logic.
+- Listing NOC PDF filler for `noc_listing_form.pdf` using legacy coordinate logic.
 - Header injection in listing agreement PDF: logo (left), establishment name (center), ORN (right).
 - Optional signature upload with preview before PDF generation.
-- Profile settings module to store company defaults locally:
+- Profile settings module to store company defaults per account:
 	- Logo
 	- Stamp
 	- Establishment Name
@@ -18,15 +18,27 @@ Nuxt 4 application for real estate document workflows, including template-based 
 	- ORN
 	- DED License
 	- PO Box
-- Local registration/login flow (browser local storage).
+- Real Estate Guide module (shared articles):
+	- Markdown editor + live preview
+	- Cover image upload
+	- Inline image upload into markdown
+	- Table of contents from headings
+	- Create/edit/delete with role-based permissions
+- Authentication with database-backed users and cookie sessions.
+- User roles:
+	- `admin`: manage users + roles, full article access
+	- `editor`: create/edit/delete articles
+	- `viewer`: read-only article access
 - Module navigation for PDF extractor, image resize, e-signature, watermark tools.
 - Contact module for bug reports and feature requests via WhatsApp.
 
-## Local Storage and Privacy
+## Data Storage
 
-- Authentication and profile data are stored in browser local storage.
-- Data is device/browser-specific and is not sent to a backend in this project.
-- Clearing browser storage or switching browser/device removes access to saved data.
+- SQLite databases are created in `.data/`:
+	- `.data/auth.sqlite` for users, roles, sessions
+	- `.data/guide.sqlite` for guide articles
+- Session auth is cookie-based (`HttpOnly`, `SameSite=Lax`).
+- Uploaded images in profile/guide are stored as data URLs in the database.
 
 ## Templates Used
 
@@ -37,7 +49,9 @@ Nuxt 4 application for real estate document workflows, including template-based 
 
 - `/` Home
 - `/agent-to-agent-form` Form I generator
-- `/pdf-template-filler` Listing agreement template filler
+- `/listing-noc-form` Listing NOC form filler
+- `/pdf-template-filler` Legacy route redirect to `/listing-noc-form`
+- `/real-estate-guide` Guide/article module (authenticated)
 - `/pdf-image-extractor` PDF image extractor
 - `/image-resize` Image resizer
 - `/e-signature` E-signature tool
@@ -47,6 +61,15 @@ Nuxt 4 application for real estate document workflows, including template-based 
 - `/profile-settings` Protected profile settings
 - `/login` Login
 - `/register` Registration
+
+## API Notes
+
+- API is served by Nuxt Nitro inside the same app process (no separate backend process needed).
+- Example endpoints:
+	- `/api/auth/login`
+	- `/api/auth/me`
+	- `/api/auth/users` (admin)
+	- `/api/guide-articles`
 
 ## Contact and Support
 
@@ -70,6 +93,12 @@ Run local dev server:
 npm run dev
 ```
 
+Expose on network (optional):
+
+```bash
+npm run dev -- --host
+```
+
 ## Build
 
 Create production build:
@@ -84,11 +113,20 @@ Preview production build:
 npm run preview
 ```
 
+Run production server directly:
+
+```bash
+node .output/server/index.mjs
+```
+
 ## Tech Stack
 
 - Nuxt 4
 - Vue 3
 - TypeScript
 - Tailwind CSS
+- better-sqlite3
+- markdown-it
+- markdown-it-anchor
 - pdf-lib
 - pdfjs-dist
