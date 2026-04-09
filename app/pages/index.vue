@@ -47,6 +47,12 @@ const baseModules = [
     description: 'Select an area and soften it to remove distracting watermark overlays.',
     path: '/watermark-remover',
     action: 'Open Remover'
+  },
+  {
+    title: 'Contact & Requests',
+    description: 'Report bugs and send feature requests quickly over WhatsApp.',
+    path: '/contact',
+    action: 'Open Contact'
   }
 ]
 
@@ -81,7 +87,7 @@ const modules = computed(() => {
       <AppTopNav />
 
       <header class="module-surface mb-8">
-        <p class="module-title mb-2 text-sm uppercase tracking-[0.25em] text-teal-700">Real Estate WebTools Suite</p>
+        <p class="module-title mb-2 text-sm uppercase tracking-[0.25em] text-teal-700">Real Estate Admin Tools Suite</p>
         <h1 class="mb-3 text-3xl font-bold text-slate-900 md:text-5xl">Welcome to Your Real Estate Utility Workspace</h1>
         <p class="max-w-3xl text-slate-700">
           This toolkit is designed to streamline your real estate document management and image processing tasks. Whether you need to fill out forms, extract images from PDFs, resize photos, create e-signatures, or apply watermarks, everything is organized here for easy access. Create an account to save your profile settings and defaults for a more personalized experience across the suite.

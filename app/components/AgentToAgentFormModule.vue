@@ -450,7 +450,7 @@ async function generateAgentToAgentPdf() {
 
     <div class="mt-5 grid gap-4 lg:grid-cols-2">
       <div class="rounded-2xl bg-white/70 p-4">
-        <h3 class="module-title text-lg font-bold">Form Details</h3>
+        <h3 class="module-title text-lg font-bold">Company Details</h3>
         <div class="mt-3 grid gap-3 sm:grid-cols-2">
           <label class="text-sm font-semibold sm:col-span-2">
             Role
@@ -523,7 +523,7 @@ async function generateAgentToAgentPdf() {
       </div>
 
       <div class="rounded-2xl bg-white/70 p-4">
-        <h3 class="module-title text-lg font-bold">Fixed Position Inputs</h3>
+        <h3 class="module-title text-lg font-bold">Property Details</h3>
         <div class="mt-3 grid gap-3 sm:grid-cols-2">
           <label class="text-sm font-semibold sm:col-span-2">
             Property Address

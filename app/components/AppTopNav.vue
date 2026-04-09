@@ -16,7 +16,8 @@ const links = [
   { label: 'Image Resize', to: '/image-resize' },
   { label: 'E-Signature', to: '/e-signature' },
   { label: 'Watermark', to: '/watermark' },
-  { label: 'Remover', to: '/watermark-remover' }
+  { label: 'Remover', to: '/watermark-remover' },
+  { label: 'Contact', to: '/contact' }
 ]
 
 function isActive(path: string) {
@@ -41,7 +42,7 @@ watch(() => route.path, () => {
 <template>
   <nav class="top-nav mb-5 p-3 md:p-4">
     <div class="flex items-center justify-between gap-2 md:hidden">
-      <NuxtLink to="/" class="text-sm font-bold tracking-wide text-slate-800">WebTools</NuxtLink>
+      <NuxtLink to="/" class="text-sm font-bold tracking-wide text-slate-800">DXB Admin Tools</NuxtLink>
       <button type="button" class="nav-chip" @click="toggleMenu">
         {{ isMenuOpen ? 'Close' : 'Menu' }}
       </button>

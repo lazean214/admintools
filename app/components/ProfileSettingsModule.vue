@@ -129,8 +129,9 @@ function saveProfile() {
             class="mt-2 h-24 w-auto rounded-md border border-slate-200 object-contain bg-gray-700 p-2"
           >
           <button v-if="form.logoDataUrl" type="button" class="btn-ghost mt-2" @click="clearAsset('logoDataUrl')">Clear Logo</button>
+           <div class="text-xs text-red-500 italic">Note: logo should be light in color and transparent.</div>
         </label>
-
+       
         <label class="text-sm font-semibold">
           Stamp
           <input type="file" accept="image/png,image/jpeg,image/jpg" class="field-control mt-1" @change="(event) => onAssetInput(event, 'stampDataUrl')" >

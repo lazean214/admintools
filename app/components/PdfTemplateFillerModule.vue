@@ -298,7 +298,7 @@ async function generateFilledPdf() {
         : await pdfDoc.embedJpg(signatureBytes)
 
       const x = toPageX(110)
-      const y = toPageY(pageHeight, 255, mmToPt(20))
+      const y = toPageY(pageHeight, 245, mmToPt(20))
       page.drawImage(signatureImage, {
         x,
         y,
@@ -374,83 +374,108 @@ watch(
 
     <p class="status-pill mt-3">{{ status }}</p>
 
-    <div class="mt-4 rounded-2xl bg-white/70 p-4 text-sm text-slate-600">
-      Template: {{ TEMPLATE_PATH }}
-    </div>
 
     <div class="mt-4 rounded-2xl bg-white/70 p-4">
       <h3 class="module-title text-lg font-bold">Field Values</h3>
-      <div class="mt-3 grid gap-3 sm:grid-cols-2">
-        <label class="text-sm font-semibold">Create Date<input v-model="form.createDate" type="date" class="field-control mt-1" ></label>
-        <label class="text-sm font-semibold">Reference No<input v-model="form.referenceNo" type="text" class="field-control mt-1" ></label>
-        <label class="text-sm font-semibold">Owner Name<input v-model="form.ownerName" type="text" class="field-control mt-1" ></label>
-        <label class="text-sm font-semibold">Owner EID<input v-model="form.ownerEid" type="text" class="field-control mt-1" ></label>
-        <label class="text-sm font-semibold">Owner License Date<input v-model="form.ownerLicense" type="date" class="field-control mt-1" ></label>
-        <label class="text-sm font-semibold">Property Building<input v-model="form.propertyBuilding" type="text" class="field-control mt-1" ></label>
-        <label class="text-sm font-semibold">Property Unit<input v-model="form.propertyUnit" type="text" class="field-control mt-1" ></label>
-        <label class="text-sm font-semibold">Property Street<input v-model="form.propertyStreet" type="text" class="field-control mt-1" ></label>
-        <label class="text-sm font-semibold">Property Community<input v-model="form.propertyCommunity" type="text" class="field-control mt-1" ></label>
-        <label class="text-sm font-semibold">Property BUA<input v-model="form.propertyBua" type="text" class="field-control mt-1" ></label>
-        <label class="text-sm font-semibold">Property Plot<input v-model="form.propertyPlot" type="text" class="field-control mt-1" ></label>
-        <label class="text-sm font-semibold">Bedrooms<input v-model="form.propertyBedroom" type="text" class="field-control mt-1" ></label>
-        <label class="text-sm font-semibold">Bathrooms<input v-model="form.propertyBathroom" type="text" class="field-control mt-1" ></label>
-        <label class="text-sm font-semibold">Parking<input v-model="form.propertyParking" type="text" class="field-control mt-1" ></label>
-        <label class="text-sm font-semibold">Rental Amount<input v-model="form.propertyRental" type="text" class="field-control mt-1" ></label>
-        <label class="text-sm font-semibold">Broker Name<input v-model="form.brokerName" type="text" class="field-control mt-1" ></label>
-        <label class="text-sm font-semibold">Terms End Date<input v-model="form.termsDurationDate" type="date" class="field-control mt-1" ></label>
-        <label class="text-sm font-semibold">Client Name<input v-model="form.name" type="text" class="field-control mt-1" ></label>
+      <div class="mt-4 space-y-4">
+        <fieldset class="rounded-xl border border-slate-200 bg-white/60 p-4">
+          <legend class="px-1 text-sm font-bold text-slate-900">General Details</legend>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <label class="text-sm font-semibold">Create Date<input v-model="form.createDate" type="date" class="field-control mt-1" ></label>
+            <label class="text-sm font-semibold">Reference No<input v-model="form.referenceNo" type="text" class="field-control mt-1" ></label>
+          </div>
+        </fieldset>
 
-        <label class="text-sm font-semibold">Property Type
-          <select v-model="form.propertyType" class="field-control mt-1">
-            <option value="vt">Villa/Townhouse</option>
-            <option value="apt">Apartment</option>
-            <option value="ph">Penthouse</option>
-            <option value="cm">Commercial</option>
-            <option value="fb">Full Building</option>
-            <option value="other">Duplex</option>
-          </select>
-        </label>
+        <fieldset class="rounded-xl border border-slate-200 bg-white/60 p-4">
+          <legend class="px-1 text-sm font-bold text-slate-900">Owner Details</legend>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <label class="text-sm font-semibold">Owner Name<input v-model="form.ownerName" type="text" class="field-control mt-1" ></label>
+            <label class="text-sm font-semibold">Owner EID<input v-model="form.ownerEid" type="text" class="field-control mt-1" ></label>
+            <label class="text-sm font-semibold sm:col-span-2">Owner License Date<input v-model="form.ownerLicense" type="date" class="field-control mt-1" ></label>
+          </div>
+        </fieldset>
 
-        <label class="text-sm font-semibold">Availability
-          <select v-model="form.propertyAvailability" class="field-control mt-1">
-            <option value="vc">Vacant</option>
-            <option value="occupied">Occupied</option>
-          </select>
-        </label>
+        <fieldset class="rounded-xl border border-slate-200 bg-white/60 p-4">
+          <legend class="px-1 text-sm font-bold text-slate-900">Property Details</legend>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <label class="text-sm font-semibold">Property Building<input v-model="form.propertyBuilding" type="text" class="field-control mt-1" ></label>
+            <label class="text-sm font-semibold">Property Unit<input v-model="form.propertyUnit" type="text" class="field-control mt-1" ></label>
+            <label class="text-sm font-semibold">Property Street<input v-model="form.propertyStreet" type="text" class="field-control mt-1" ></label>
+            <label class="text-sm font-semibold">Property Community<input v-model="form.propertyCommunity" type="text" class="field-control mt-1" ></label>
+            <label class="text-sm font-semibold">Property BUA<input v-model="form.propertyBua" type="text" class="field-control mt-1" ></label>
+            <label class="text-sm font-semibold">Property Plot<input v-model="form.propertyPlot" type="text" class="field-control mt-1" ></label>
+            <label class="text-sm font-semibold">Bedrooms<input v-model="form.propertyBedroom" type="text" class="field-control mt-1" ></label>
+            <label class="text-sm font-semibold">Bathrooms<input v-model="form.propertyBathroom" type="text" class="field-control mt-1" ></label>
+            <label class="text-sm font-semibold">Parking<input v-model="form.propertyParking" type="text" class="field-control mt-1" ></label>
+            <label class="text-sm font-semibold">Amount<input v-model="form.propertyRental" type="text" class="field-control mt-1" ></label>
 
-        <label class="text-sm font-semibold">Status
-          <select v-model="form.propertyStatus" class="field-control mt-1">
-            <option value="fn">Furnished</option>
-            <option value="rented">Unfurnished</option>
-          </select>
-        </label>
+            <label class="text-sm font-semibold">Property Type
+              <select v-model="form.propertyType" class="field-control mt-1">
+                <option value="vt">Villa/Townhouse</option>
+                <option value="apt">Apartment</option>
+                <option value="ph">Penthouse</option>
+                <option value="cm">Commercial</option>
+                <option value="fb">Full Building</option>
+                <option value="other">Duplex</option>
+              </select>
+            </label>
 
-        <label class="text-sm font-semibold">Terms Type
-          <select v-model="form.termsExclusive" class="field-control mt-1">
-            <option value="exclusive">Exclusive</option>
-            <option value="nonexclusive">Non-Exclusive</option>
-          </select>
-        </label>
+            <label class="text-sm font-semibold">Availability
+              <select v-model="form.propertyAvailability" class="field-control mt-1">
+                <option value="vc">Vacant</option>
+                <option value="occupied">Occupied</option>
+              </select>
+            </label>
 
-        <label class="text-sm font-semibold">Terms Duration
-          <select v-model="form.termsDuration" class="field-control mt-1">
-            <option value="1">1 Month</option>
-            <option value="2">2 Months</option>
-            <option value="3">3 Months</option>
-            <option value="other">Other</option>
-          </select>
-        </label>
+            <label class="text-sm font-semibold">Status
+              <select v-model="form.propertyStatus" class="field-control mt-1">
+                <option value="fn">Furnished</option>
+                <option value="rented">Unfurnished</option>
+              </select>
+            </label>
+          </div>
+        </fieldset>
 
-        <label class="text-sm font-semibold sm:col-span-2">
-          Signature (optional)
-          <input type="file" accept="image/png,image/jpeg,image/jpg" class="field-control mt-1" @change="onSignatureChange" >
-          <img
-            v-if="signaturePreviewUrl"
-            :src="signaturePreviewUrl"
-            alt="Signature preview"
-            class="mt-2 h-20 w-auto rounded-md border border-slate-200 object-contain bg-white p-1"
-          >
-        </label>
+        <fieldset class="rounded-xl border border-slate-200 bg-white/60 p-4">
+          <legend class="px-1 text-sm font-bold text-slate-900">Agreement Terms</legend>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <label class="text-sm font-semibold">Broker/Business Name<input v-model="form.brokerName" type="text" class="field-control mt-1" ></label>
+            <label class="text-sm font-semibold">Terms End Date<input v-model="form.termsDurationDate" type="date" class="field-control mt-1" ></label>
+            <label class="text-sm font-semibold">Client Name<input v-model="form.name" type="text" class="field-control mt-1" ></label>
+
+            <label class="text-sm font-semibold">Terms Type
+              <select v-model="form.termsExclusive" class="field-control mt-1">
+                <option value="exclusive">Exclusive</option>
+                <option value="nonexclusive">Non-Exclusive</option>
+              </select>
+            </label>
+
+            <label class="text-sm font-semibold sm:col-span-2">Terms Duration
+              <select v-model="form.termsDuration" class="field-control mt-1">
+                <option value="1">1 Month</option>
+                <option value="2">2 Months</option>
+                <option value="3">3 Months</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="rounded-xl border border-slate-200 bg-white/60 p-4">
+          <legend class="px-1 text-sm font-bold text-slate-900">Signature</legend>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <label class="text-sm font-semibold sm:col-span-2">
+              Owner Signature (optional)
+              <input type="file" accept="image/png,image/jpeg,image/jpg" class="field-control mt-1" @change="onSignatureChange" >
+              <img
+                v-if="signaturePreviewUrl"
+                :src="signaturePreviewUrl"
+                alt="Signature preview"
+                class="mt-2 h-20 w-auto rounded-md border border-slate-200 object-contain bg-white p-1"
+              >
+            </label>
+          </div>
+        </fieldset>
       </div>
     </div>
 
