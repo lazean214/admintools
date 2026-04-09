@@ -29,7 +29,7 @@ const baseModules = [
   },
   {
     title: 'Listing NOC',
-    description: 'Load fillable fields from a PDF template and generate a completed PDF file.',
+    description: 'Easy to use Listing NOC form and generate a PFD from the provided template.',
     path: '/listing-noc-form',
     action: 'Open Listing NOC Form'
   },
