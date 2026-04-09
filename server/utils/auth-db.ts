@@ -409,3 +409,44 @@ export async function updateUserProfile(userId: string, profile: ProfileSettings
 
   return toPublicUser(data)
 }
+
+export async function findOrCreateOAuthUser(input: { email: string; name: string }) {
+  const supabase = getSupabaseAdminClient()
+  const email = input.email.trim().toLowerCase()
+  const name = input.name.trim() || 'Google User'
+
+  if (!email) {
+    throw createError({ statusCode: 400, statusMessage: 'Email is required.' })
+  }
+
+  const existing = await getUserByEmail(email)
+  if (existing) {
+    return toPublicUser(existing)
+  }
+
+  const randomPassword = randomBytes(24).toString('hex')
+  const { hash, salt } = hashPassword(randomPassword)
+  const now = new Date().toISOString()
+
+  const { data, error } = await supabase
+    .from('auth_users')
+    .insert({
+      id: randomUUID(),
+      name,
+      email,
+      role: 'viewer',
+      password_hash: hash,
+      password_salt: salt,
+      profile_json: emptyProfile(),
+      created_at: now,
+      updated_at: now
+    })
+    .select('*')
+    .single<UserRow>()
+
+  if (error || !data) {
+    throwSupabaseError(error, 'Could not create OAuth user.')
+  }
+
+  return toPublicUser(data)
+}

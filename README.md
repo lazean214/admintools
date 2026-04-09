@@ -89,9 +89,18 @@ Create environment variables:
 ```bash
 SUPABASE_URL=your_supabase_project_url
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+GOOGLE_CLIENT_ID=your_google_oauth_client_id
+GOOGLE_CLIENT_SECRET=your_google_oauth_client_secret
 ```
 
 Then run SQL from `supabase/schema.sql` in Supabase before starting the app.
+
+Google OAuth setup:
+
+- In Google Cloud Console, create OAuth 2.0 Client ID (Web application).
+- Add Authorized redirect URI:
+	- Local: `http://localhost:3000/api/auth/google/callback`
+	- Production: `https://your-domain.com/api/auth/google/callback`
 
 ## Development
 

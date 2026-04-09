@@ -5,6 +5,7 @@ const auth = useAuth()
 
 const status = ref('Login to access your private profile settings.')
 const loading = ref(false)
+const googleLoading = ref(false)
 
 const form = reactive({
   email: '',
@@ -31,6 +32,13 @@ async function loginUser() {
     loading.value = false
   }
 }
+
+function continueWithGoogle() {
+  const target = typeof route.query.redirect === 'string' ? route.query.redirect : '/profile-settings'
+  googleLoading.value = true
+  status.value = 'Redirecting to Google...'
+  window.location.href = `/api/auth/google?redirect=${encodeURIComponent(target)}`
+}
 </script>
 
 <template>
@@ -56,6 +64,9 @@ async function loginUser() {
     <div class="mt-5 flex flex-wrap items-center gap-3">
       <button class="btn-primary disabled:opacity-60" :disabled="loading" @click="loginUser">
         {{ loading ? 'Logging in...' : 'Login' }}
+      </button>
+      <button class="btn-secondary disabled:opacity-60" :disabled="googleLoading" @click="continueWithGoogle">
+        {{ googleLoading ? 'Connecting...' : 'Continue with Google' }}
       </button>
       <NuxtLink to="/register" class="btn-secondary">Create Account</NuxtLink>
     </div>
