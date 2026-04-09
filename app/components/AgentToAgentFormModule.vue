@@ -659,7 +659,7 @@ async function generateAgentToAgentPdf() {
     </div>
 
     <div class="mt-5">
-      <button class="btn-primary disabled:opacity-60" :disabled="generating" @click="generateAgentToAgentPdf">
+      <button type="button" class="btn-primary disabled:opacity-60" :disabled="generating" @click.prevent="generateAgentToAgentPdf">
         {{ generating ? 'Generating PDF...' : 'Generate PDF' }}
       </button>
     </div>
