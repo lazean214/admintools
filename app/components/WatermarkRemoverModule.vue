@@ -286,43 +286,34 @@ function endSelect(event: PointerEvent) {
  * Fills the masked region from the boundary inward using weighted
  * pixel extrapolation that preserves edges and surrounding texture.
  */
-function inpaintWithMask(
+function inpaintFMM(
   data: Uint8ClampedArray,
   width: number,
   height: number,
-  mask: Uint8ClampedArray
+  maskFlags: Uint8Array,
+  total: number
 ) {
-  const total = width * height
   const KNOWN = 0
   const BAND = 1
   const UNKNOWN = 2
-  const flags = new Uint8Array(total)
   const dist = new Float32Array(total)
 
-  // Build mask: any pixel with mask alpha > 0 is UNKNOWN
-  let unknownCount = 0
   for (let i = 0; i < total; i++) {
-    if (mask[i * 4 + 3]! > 0) {
-      flags[i] = UNKNOWN
-      dist[i] = 1e6
-      unknownCount++
-    }
+    if (maskFlags[i] !== KNOWN) dist[i] = 1e6
   }
-  if (unknownCount === 0) return
 
   const nd: [number, number][] = [[-1, 0], [1, 0], [0, -1], [0, 1]]
 
-  // Find boundary pixels (UNKNOWN adjacent to KNOWN)
   let band: number[] = []
   for (let i = 0; i < total; i++) {
-    if (flags[i] !== UNKNOWN) continue
+    if (maskFlags[i] !== UNKNOWN) continue
     const x = i % width
     const y = (i - x) / width
     for (const [ddx, ddy] of nd) {
       const nx = x + ddx
       const ny = y + ddy
-      if (nx >= 0 && nx < width && ny >= 0 && ny < height && flags[ny * width + nx] === KNOWN) {
-        flags[i] = BAND
+      if (nx >= 0 && nx < width && ny >= 0 && ny < height && maskFlags[ny * width + nx] === KNOWN) {
+        maskFlags[i] = BAND
         dist[i] = 1
         band.push(i)
         break
@@ -330,10 +321,10 @@ function inpaintWithMask(
     }
   }
 
-  // Compute adaptive radius from mask bounding box
+  // Adaptive radius — larger for bigger mask regions
   let minX = width, minY = height, maxX = 0, maxY = 0
   for (let i = 0; i < total; i++) {
-    if (mask[i * 4 + 3]! > 0) {
+    if (maskFlags[i] !== KNOWN) {
       const x = i % width
       const y = (i - x) / width
       if (x < minX) minX = x
@@ -344,7 +335,7 @@ function inpaintWithMask(
   }
   const rw = maxX - minX + 1
   const rh = maxY - minY + 1
-  const radius = Math.max(5, Math.min(25, Math.ceil(Math.sqrt(rw * rh) * 0.12)))
+  const radius = Math.max(6, Math.min(30, Math.ceil(Math.sqrt(rw * rh) * 0.15)))
 
   const px = (i: number, c: number): number => data[i * 4 + c]!
 
@@ -382,7 +373,7 @@ function inpaintWithMask(
           const nx = cx + dx
           if (nx < 0 || nx >= width) continue
           const ni = ny * width + nx
-          if (flags[ni] !== KNOWN) continue
+          if (maskFlags[ni] !== KNOWN) continue
           const d2 = dx * dx + dy * dy
           if (d2 === 0 || d2 > radius * radius) continue
           const d = Math.sqrt(d2)
@@ -396,10 +387,10 @@ function inpaintWithMask(
           const rni = ni + 1
           const tni = ni - width
           const bni = ni + width
-          const lKnown = nx > 0 && flags[lni] === KNOWN
-          const rKnown = nx < width - 1 && flags[rni] === KNOWN
-          const tKnown = ny > 0 && flags[tni] === KNOWN
-          const bKnown = ny < height - 1 && flags[bni] === KNOWN
+          const lKnown = nx > 0 && maskFlags[lni] === KNOWN
+          const rKnown = nx < width - 1 && maskFlags[rni] === KNOWN
+          const tKnown = ny > 0 && maskFlags[tni] === KNOWN
+          const bKnown = ny < height - 1 && maskFlags[bni] === KNOWN
 
           for (let c = 0; c < 3; c++) {
             const center = px(ni, c)
@@ -427,15 +418,15 @@ function inpaintWithMask(
         data[pi + 2] = Math.round(chB / wSum)
       }
 
-      flags[idx] = KNOWN
+      maskFlags[idx] = KNOWN
 
       for (const [ddx, ddy] of nd) {
         const nx = cx + ddx
         const ny = cy + ddy
         if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
           const ni = ny * width + nx
-          if (flags[ni] === UNKNOWN) {
-            flags[ni] = BAND
+          if (maskFlags[ni] === UNKNOWN) {
+            maskFlags[ni] = BAND
             dist[ni] = curDist + 1
             nextBand.push(ni)
           }
@@ -444,6 +435,246 @@ function inpaintWithMask(
     }
 
     band = nextBand
+  }
+}
+
+/**
+ * Fast block-based texture synthesis with PatchMatch-style propagation.
+ * Processes the mask in overlapping blocks, using randomized search +
+ * neighbor propagation to find matching texture patches quickly.
+ * Runs in async chunks to keep the browser responsive.
+ */
+async function patchSynthesis(
+  data: Uint8ClampedArray,
+  origData: Uint8ClampedArray,
+  width: number,
+  height: number,
+  isMasked: Uint8Array
+) {
+  // Mask bounding box
+  let minX = width, minY = height, maxX = 0, maxY = 0
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (isMasked[y * width + x]) {
+        if (x < minX) minX = x
+        if (x > maxX) maxX = x
+        if (y < minY) minY = y
+        if (y > maxY) maxY = y
+      }
+    }
+  }
+  const mw = maxX - minX + 1
+  const mh = maxY - minY + 1
+  if (mw < 1 || mh < 1) return
+
+  // Block size adapts to mask, overlap = half block
+  const blockSize = Math.max(5, Math.min(12, Math.ceil(Math.sqrt(mw * mh) * 0.035)))
+  const overlap = Math.max(2, blockSize >> 1)
+  const stepSize = Math.max(1, blockSize - overlap)
+
+  // Search region around mask
+  const searchPad = Math.max(blockSize * 3, Math.ceil(Math.max(mw, mh) * 0.6))
+  const sx0 = Math.max(0, minX - searchPad)
+  const sy0 = Math.max(0, minY - searchPad)
+  const sx1 = Math.min(width - blockSize, maxX + searchPad)
+  const sy1 = Math.min(height - blockSize, maxY + searchPad)
+
+  // Build source block origins (non-masked blocks), coarsely sampled
+  const srcStep = Math.max(2, blockSize >> 1)
+  const srcBlocks: number[] = []
+  for (let y = sy0; y <= sy1; y += srcStep) {
+    for (let x = sx0; x <= sx1; x += srcStep) {
+      // Check block is fully non-masked
+      let clean = true
+      for (let by = 0; by < blockSize && clean; by++) {
+        const ry = y + by
+        if (ry >= height) { clean = false; break }
+        for (let bx = 0; bx < blockSize && clean; bx++) {
+          if (x + bx >= width || isMasked[ry * width + x + bx]) clean = false
+        }
+      }
+      if (clean) srcBlocks.push(y * width + x)
+    }
+  }
+  if (srcBlocks.length === 0) return
+
+  // Cap source blocks for speed
+  const maxSrc = 800
+  let activeSrc = srcBlocks
+  if (activeSrc.length > maxSrc) {
+    const sampled = activeSrc.slice(0, maxSrc)
+    for (let i = maxSrc; i < activeSrc.length; i++) {
+      const j = Math.floor(Math.random() * (i + 1))
+      if (j < maxSrc) sampled[j] = activeSrc[i]!
+    }
+    activeSrc = sampled
+  }
+
+  // SSD between a target block at (tx,ty) and source block at origin si
+  function blockSSD(tx: number, ty: number, si: number): number {
+    const sox = si % width
+    const soy = (si - sox) / width
+    let ssd = 0
+    for (let by = 0; by < blockSize; by += 2) {
+      const ry = ty + by
+      const sry = soy + by
+      if (ry >= height || sry >= height) { ssd += blockSize * 300; continue }
+      for (let bx = 0; bx < blockSize; bx += 2) {
+        const rx = tx + bx
+        const srx = sox + bx
+        if (rx >= width || srx >= width) { ssd += 300; continue }
+        const ti = (ry * width + rx) * 4
+        const sii = (sry * width + srx) * 4
+        // Weight known pixels more heavily in the match
+        const w = isMasked[ry * width + rx] ? 0.3 : 1.0
+        const dr = data[ti]! - origData[sii]!
+        const dg = data[ti + 1]! - origData[sii + 1]!
+        const db = data[ti + 2]! - origData[sii + 2]!
+        ssd += (dr * dr + dg * dg + db * db) * w
+      }
+    }
+    return ssd
+  }
+
+  // Build grid of target blocks covering the masked area
+  const targetBlocks: { x: number; y: number }[] = []
+  for (let y = Math.max(0, minY - overlap); y <= Math.min(height - blockSize, maxY); y += stepSize) {
+    for (let x = Math.max(0, minX - overlap); x <= Math.min(width - blockSize, maxX); x += stepSize) {
+      // Only include blocks that overlap with the mask
+      let hasMasked = false
+      for (let by = 0; by < blockSize && !hasMasked; by++) {
+        for (let bx = 0; bx < blockSize && !hasMasked; bx++) {
+          if (y + by < height && x + bx < width && isMasked[(y + by) * width + x + bx]) {
+            hasMasked = true
+          }
+        }
+      }
+      if (hasMasked) targetBlocks.push({ x, y })
+    }
+  }
+  if (targetBlocks.length === 0) return
+
+  // NNF (nearest neighbor field): best source index for each target block
+  const nnf = new Int32Array(targetBlocks.length)
+  const nnfDist = new Float32Array(targetBlocks.length)
+
+  // Initialize: random assignment
+  for (let i = 0; i < targetBlocks.length; i++) {
+    const ri = Math.floor(Math.random() * activeSrc.length)
+    nnf[i] = activeSrc[ri]!
+    nnfDist[i] = blockSSD(targetBlocks[i]!.x, targetBlocks[i]!.y, activeSrc[ri]!)
+  }
+
+  // PatchMatch iterations: propagate + random search
+  const pmIterations = 3
+  const randomTrials = 6
+
+  for (let iter = 0; iter < pmIterations; iter++) {
+    // Alternate scan direction
+    const forward = iter % 2 === 0
+    const start = forward ? 0 : targetBlocks.length - 1
+    const end = forward ? targetBlocks.length : -1
+    const step2 = forward ? 1 : -1
+
+    for (let i = start; i !== end; i += step2) {
+      const tb = targetBlocks[i]!
+
+      // Propagation: check neighbors' matches (shifted by step)
+      const neighbors = forward ? [i - 1, i - Math.ceil(mw / stepSize)] : [i + 1, i + Math.ceil(mw / stepSize)]
+      for (const ni of neighbors) {
+        if (ni < 0 || ni >= targetBlocks.length) continue
+        const nSrc = nnf[ni]!
+        const nsx = nSrc % width
+        const nsy = (nSrc - nsx) / width
+        // Shift source by the target offset difference
+        const ntb = targetBlocks[ni]!
+        const shiftedX = nsx + (tb.x - ntb.x)
+        const shiftedY = nsy + (tb.y - ntb.y)
+        if (shiftedX < 0 || shiftedX + blockSize > width || shiftedY < 0 || shiftedY + blockSize > height) continue
+        const shiftedIdx = shiftedY * width + shiftedX
+        const d = blockSSD(tb.x, tb.y, shiftedIdx)
+        if (d < nnfDist[i]!) {
+          nnf[i] = shiftedIdx
+          nnfDist[i] = d
+        }
+      }
+
+      // Random search: decreasing radius
+      let searchRadius = Math.max(sx1 - sx0, sy1 - sy0)
+      const curSrc = nnf[i]!
+      const csx = curSrc % width
+      const csy = (curSrc - csx) / width
+      for (let t = 0; t < randomTrials && searchRadius >= 1; t++) {
+        const rx = csx + Math.round((Math.random() * 2 - 1) * searchRadius)
+        const ry = csy + Math.round((Math.random() * 2 - 1) * searchRadius)
+        if (rx >= sx0 && rx + blockSize <= width && ry >= sy0 && ry + blockSize <= height) {
+          const ri = ry * width + rx
+          const d = blockSSD(tb.x, tb.y, ri)
+          if (d < nnfDist[i]!) {
+            nnf[i] = ri
+            nnfDist[i] = d
+          }
+        }
+        searchRadius = Math.floor(searchRadius * 0.5)
+      }
+    }
+
+    // Yield to browser between iterations
+    await new Promise<void>((r) => setTimeout(r, 0))
+  }
+
+  // Voting: accumulate source contributions with overlap blending
+  const accR = new Float32Array(width * height)
+  const accG = new Float32Array(width * height)
+  const accB = new Float32Array(width * height)
+  const accW = new Float32Array(width * height)
+
+  for (let i = 0; i < targetBlocks.length; i++) {
+    const tb = targetBlocks[i]!
+    const src = nnf[i]!
+    const sox = src % width
+    const soy = (src - sox) / width
+
+    for (let by = 0; by < blockSize; by++) {
+      const ty = tb.y + by
+      const sy = soy + by
+      if (ty >= height || sy >= height) continue
+      for (let bx = 0; bx < blockSize; bx++) {
+        const tx = tb.x + bx
+        const sx2 = sox + bx
+        if (tx >= width || sx2 >= width) continue
+        const ti = ty * width + tx
+        if (!isMasked[ti]) continue // only fill masked pixels
+
+        // Feather weight: stronger in the center of the block
+        const edgeX = Math.min(bx, blockSize - 1 - bx)
+        const edgeY = Math.min(by, blockSize - 1 - by)
+        const feather = (edgeX + 1) * (edgeY + 1)
+
+        const si = (sy * width + sx2) * 4
+        const srcR = origData[si]!
+        const srcG = origData[si + 1]!
+        const srcB = origData[si + 2]!
+        accR[ti] = accR[ti]! + srcR * feather
+        accG[ti] = accG[ti]! + srcG * feather
+        accB[ti] = accB[ti]! + srcB * feather
+        accW[ti] = accW[ti]! + feather
+      }
+    }
+  }
+
+  // Write averaged results, blending with FMM base fill
+  for (let i = 0; i < width * height; i++) {
+    if (!isMasked[i] || accW[i]! < 0.01) continue
+    const pi = i * 4
+    const patchR = accR[i]! / accW[i]!
+    const patchG = accG[i]! / accW[i]!
+    const patchB = accB[i]! / accW[i]!
+
+    // Blend 70% patch texture + 30% FMM base for smooth boundary transitions
+    data[pi] = Math.round(patchR * 0.7 + data[pi]! * 0.3)
+    data[pi + 1] = Math.round(patchG * 0.7 + data[pi + 1]! * 0.3)
+    data[pi + 2] = Math.round(patchB * 0.7 + data[pi + 2]! * 0.3)
   }
 }
 
@@ -465,7 +696,7 @@ async function applyWatermarkRemoval() {
   }
 
   processing.value = true
-  setStatus('Removing watermark\u2026')
+  setStatus('Phase 1: Base fill\u2026')
   await nextTick()
 
   pushUndo()
@@ -480,12 +711,40 @@ async function applyWatermarkRemoval() {
   if (removeSourceImage) context.drawImage(removeSourceImage, 0, 0)
   const imageData = context.getImageData(0, 0, w, h)
 
+  // Run FMM base fill
+  const total = w * h
+  const isMasked = new Uint8Array(total)
+  const flags = new Uint8Array(total)
+  let unknownCount = 0
+  for (let i = 0; i < total; i++) {
+    if (maskData.data[i * 4 + 3]! > 0) {
+      isMasked[i] = 1
+      flags[i] = 2
+      unknownCount++
+    }
+  }
+
+  if (unknownCount === 0) {
+    processing.value = false
+    setStatus('No area selected.')
+    return
+  }
+
+  const origData = new Uint8ClampedArray(imageData.data.length)
+  origData.set(imageData.data)
+
   await new Promise<void>((resolve) => {
     setTimeout(() => {
-      inpaintWithMask(imageData.data, w, h, maskData.data)
+      inpaintFMM(imageData.data, w, h, flags, total)
       resolve()
     }, 50)
   })
+
+  // Phase 2: Patch synthesis
+  setStatus('Phase 2: Texture synthesis\u2026')
+  await nextTick()
+
+  await patchSynthesis(imageData.data, origData, w, h, isMasked)
 
   context.putImageData(imageData, 0, 0)
 
@@ -600,8 +859,8 @@ async function downloadRemovedResult() {
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
           </svg>
-          <p class="mt-3 text-sm font-bold text-slate-700">Inpainting region\u2026</p>
-          <p class="mt-1 text-xs text-slate-500">This may take a moment for large selections</p>
+          <p class="mt-3 text-sm font-bold text-slate-700">{{ status }}</p>
+          <p class="mt-1 text-xs text-slate-500">Base fill &rarr; Texture synthesis &rarr; Done</p>
         </div>
       </Transition>
 
