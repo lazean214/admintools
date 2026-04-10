@@ -14,7 +14,7 @@ const links = [
 ]
 
 const toolLinks = [
-  { label: 'Form', to: '/agent-to-agent-form' },
+  { label: 'Form I', to: '/agent-to-agent-form' },
   { label: 'NOC', to: '/listing-noc-form' },
   { label: 'PDF Extract', to: '/pdf-image-extractor' },
   { label: 'Resize', to: '/image-resize' },
