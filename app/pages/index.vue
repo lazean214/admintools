@@ -1,13 +1,19 @@
 <script setup lang="ts">
 const auth = useAuth()
+const requestUrl = useRequestURL()
+const seoImageUrl = `${requestUrl.origin}/admin-toolkit-cover.png`
 
 useSeoMeta({
   title: 'Home',
   description: 'Access real estate admin tools for Form I, PDF editing, image utilities, e-signatures, and watermark workflows from one dashboard.',
   ogTitle: 'Real Estate Web Tools Dashboard',
   ogDescription: 'Open Form I, PDF template filler, PDF image extractor, image resize, e-signature, and watermark tools in one place.',
+  ogImage: seoImageUrl,
+  ogImageAlt: 'Real Estate Admin Toolkit cover image',
   twitterTitle: 'Real Estate Web Tools Dashboard',
-  twitterDescription: 'Document and image utility suite for real estate workflows.'
+  twitterDescription: 'Document and image utility suite for real estate workflows.',
+  twitterImage: seoImageUrl,
+  twitterImageAlt: 'Real Estate Admin Toolkit cover image'
 })
 
 onMounted(() => {
@@ -103,7 +109,7 @@ const modules = computed(() => {
 
       <header class="module-surface mb-8">
         <p class="module-title mb-2 text-sm uppercase tracking-[0.25em] text-teal-700">Real Estate Admin Tools Suite</p>
-        <h1 class="mb-3 text-3xl font-bold text-slate-900 md:text-5xl">Welcome to Your Real Estate Utility Workspace</h1>
+        <h1 class="mb-3 text-3xl font-bold text-slate-900 md:text-5xl">Admin Toolkit</h1>
         <p class="max-w-3xl text-slate-700">
           This toolkit is designed to streamline your real estate document management and image processing tasks. Whether you need to fill out forms, extract images from PDFs, resize photos, create e-signatures, or apply watermarks, everything is organized here for easy access. Create an account to save your profile settings and defaults for a more personalized experience across the suite.
         </p>
