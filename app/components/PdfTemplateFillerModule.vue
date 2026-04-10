@@ -383,7 +383,7 @@ async function generateListingPdf() {
     // Property fields grid (3 columns)
     const col3W = (CW - 12) / 3
     labelValue('Building / Project Name:', form.propertyBuilding, M, curY, col3W * 2 + 6)
-    labelValue('Unit / Door No.:', form.propertyUnit, M + col3W * 2 + 12, curY, col3W)
+    labelValue('Unit No.:', form.propertyUnit, M + col3W * 2 + 12, curY, col3W)
     curY += 9
     labelValue('Community / Area:', form.propertyCommunity, M, curY, col3W)
     labelValue('BUA (SqFt):', form.propertyBua, M + col3W + 6, curY, col3W)
@@ -496,10 +496,10 @@ async function generateListingPdf() {
     ctx.moveTo(s(M), s(curY))
     ctx.lineTo(s(W - M), s(curY))
     ctx.stroke()
-    curY += 4
+    curY += 2
 
     const sigBoxW = 75
-    const sigBoxH = 20
+    const sigBoxH = 18
     const sigX = (W - sigBoxW) / 2
 
     const sigImg = await loadOptionalImage(uploads.signature)
@@ -525,26 +525,9 @@ async function generateListingPdf() {
       ctx.fillText(form.ownerSignatureName, s(W / 2), s(curY + sigBoxH + 9.5))
     }
 
-    ctx.font = `italic ${s(2)}px Arial`
+    ctx.font = `italic ${s(2.4)}px Arial`
     ctx.fillStyle = '#94a3b8'
-    ctx.fillText('I hereby confirm all information provided is accurate and grant the broker permission to list the property.', s(W / 2), s(curY + sigBoxH + 13.5))
-    ctx.textAlign = 'left'
-
-    // ========== FOOTER ==========
-    const footerY = H - 7
-    ctx.strokeStyle = '#e2e8f0'
-    ctx.lineWidth = s(0.15)
-    ctx.beginPath()
-    ctx.moveTo(s(M), s(footerY - 3))
-    ctx.lineTo(s(W - M), s(footerY - 3))
-    ctx.stroke()
-
-    ctx.font = `400 ${s(1.8)}px Arial`
-    ctx.fillStyle = '#94a3b8'
-    ctx.textAlign = 'left'
-    ctx.fillText(`\u00A9 ${today.getFullYear()} All Rights Reserved. Generated via Listing Agreement Designer.`, s(M), s(footerY))
-    ctx.textAlign = 'right'
-    ctx.fillText('Page 1 of 1', s(W - M), s(footerY))
+    ctx.fillText('I hereby confirm all information provided is accurate and grant the broker permission to list the property.', s(W / 2), s(curY + sigBoxH + 10))
     ctx.textAlign = 'left'
 
     // === OUTPUT PDF ===
@@ -651,7 +634,7 @@ async function generateListingPdf() {
             <input v-model="form.propertyBuilding" type="text" class="field-control mt-1">
           </label>
           <label class="text-sm font-semibold">
-            Unit / Door No.
+            Unit No.
             <input v-model="form.propertyUnit" type="text" class="field-control mt-1">
           </label>
           <label class="text-sm font-semibold">
