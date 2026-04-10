@@ -377,7 +377,9 @@ async function generateAgentToAgentPdf() {
     ctx.fillStyle = '#111827'
     ctx.fillText(form.brn, s(rhX + 15), s(8))
     ctx.fillText(form.strNo, s(rhX + 15), s(12.5))
-    ctx.fillText(form.dateIssue, s(rhX + 15), s(17))
+    const today = new Date()
+    const headerDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`
+    ctx.fillText(headerDate, s(rhX + 15), s(17))
 
     // Header bottom border
     ctx.strokeStyle = themeStr
@@ -418,6 +420,7 @@ async function generateAgentToAgentPdf() {
       labelValue('Name:', data?.agentName || '', x + 1.5, y, w - 3); y += 5
       labelValue('BRN#:', data?.brn || '', x + 1.5, y, hw)
       labelValue('Mobile:', data?.agentMobile || '', x + hw + 4, y, hw); y += 5
+      labelValue('BRN Date Issued:', data?.dateIssue || '', x + 1.5, y, w - 3); y += 5
       labelValue(`${formLabel}:`, data?.formRefNo || '', x + 1.5, y, w - 3)
     }
 
@@ -787,6 +790,11 @@ async function generateAgentToAgentPdf() {
             </select>
           </label>
 
+          <label class="text-sm font-semibold">
+            STR No
+            <input v-model="form.strNo" type="text" class="field-control mt-1" placeholder="STR number" >
+          </label>
+
           <label class="text-sm font-semibold sm:col-span-2">
             Name of Establishment
             <input v-model="form.establishmentName" type="text" class="field-control mt-1" placeholder="Establishment name" >
@@ -827,13 +835,9 @@ async function generateAgentToAgentPdf() {
             <input v-model="form.brn" type="text" class="field-control mt-1" placeholder="BRN" >
           </label>
 
-          <label class="text-sm font-semibold">
-            STR No
-            <input v-model="form.strNo" type="text" class="field-control mt-1" placeholder="STR number" >
-          </label>
 
           <label class="text-sm font-semibold">
-            Date
+            BRN Date Issued
             <input v-model="form.dateIssue" type="date" class="field-control mt-1" >
           </label>
 
