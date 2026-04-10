@@ -51,6 +51,20 @@ function onClickOutside(e: Event) {
 onMounted(() => {
   auth.hydrate()
   document.addEventListener('click', onClickOutside)
+
+  // Prefetch guide articles in background so /real-estate-guide loads instantly
+  const hasPrefetched = useState<boolean>('guide-prefetched-once', () => false)
+  if (!hasPrefetched.value) {
+    const guideEndpoint = ['/api', 'guide-articles'].join('/')
+    $fetch<unknown[]>(guideEndpoint)
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          useState('guide-prefetched-articles', () => []).value = data
+          hasPrefetched.value = true
+        }
+      })
+      .catch(() => {})
+  }
 })
 
 onUnmounted(() => {

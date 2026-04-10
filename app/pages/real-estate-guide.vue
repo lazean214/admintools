@@ -21,7 +21,7 @@ if (!hasPrefetchedArticles.value) {
     () => $fetch<GuideArticle[]>(guideArticlesEndpoint),
     {
       server: true,
-      lazy: false,
+      lazy: true,
       default: () => []
     }
   )
