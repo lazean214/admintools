@@ -14,11 +14,11 @@ const links = [
 ]
 
 const toolLinks = [
-  { label: 'Form I / Agent To Agent', to: '/agent-to-agent-form' },
-  { label: 'Listing NOC', to: '/listing-noc-form' },
-  { label: 'PDF Image Extractor', to: '/pdf-image-extractor' },
-  { label: 'Image Resize', to: '/image-resize' },
-  { label: 'E-Signature', to: '/e-signature' },
+  { label: 'Form', to: '/agent-to-agent-form' },
+  { label: 'NOC', to: '/listing-noc-form' },
+  { label: 'PDF Extract', to: '/pdf-image-extractor' },
+  { label: 'Resize', to: '/image-resize' },
+  { label: 'E-Sign', to: '/e-signature' },
   { label: 'Watermark', to: '/watermark' },
   { label: 'Watermark Remover', to: '/watermark-remover' }
 ]
