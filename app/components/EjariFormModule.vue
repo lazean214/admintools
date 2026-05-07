@@ -554,29 +554,6 @@ async function generateEjariPdf() {
 
     </div>
 
-    <div class="mt-5 rounded-2xl bg-white/70 p-4">
-      <h3 class="module-title text-base font-bold">Template Alignment</h3>
-      <p class="mt-1 text-xs text-slate-500">Text and check offsets are fixed to match the template baseline.</p>
-      <div class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <label class="text-sm font-semibold">
-          Text X Offset (mm)
-          <input :value="FIXED_TEXT_ALIGNMENT.xOffset" type="number" class="field-control mt-1 bg-slate-100" readonly >
-        </label>
-        <label class="text-sm font-semibold">
-          Text Y Offset (mm)
-          <input :value="FIXED_TEXT_ALIGNMENT.yOffset" type="number" class="field-control mt-1 bg-slate-100" readonly >
-        </label>
-        <label class="text-sm font-semibold">
-          Check X Offset (mm)
-          <input :value="FIXED_CHECK_ALIGNMENT.checkXOffset" type="number" class="field-control mt-1 bg-slate-100" readonly >
-        </label>
-        <label class="text-sm font-semibold">
-          Check Y Offset (mm)
-          <input :value="FIXED_CHECK_ALIGNMENT.checkYOffset" type="number" class="field-control mt-1 bg-slate-100" readonly >
-        </label>
-      </div>
-    </div>
-
     <div class="mt-6 flex flex-wrap gap-3">
       <button type="button" class="btn-primary" :disabled="generating" @click="generateEjariPdf">
         {{ generating ? 'Generating PDF...' : 'Preview + Download EJARI PDF' }}
