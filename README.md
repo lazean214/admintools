@@ -1,90 +1,90 @@
-# WebTools - Real Estate PDF and Image Utilities
+# AdminTools - Real Estate Web Tools
 
-Nuxt 4 application for real estate document workflows, including template-based PDF filling, Form I generation, guide/article management, and image/PDF utility tools.
+Nuxt 4 application for real estate admin workflows, including template-based PDF generation, EJARI export, guide/article management, and document/image utilities.
 
-## Main Features
+## Features
 
-- Form I / Agent-to-Agent PDF generator using fixed legacy coordinate mapping.
-- Listing NOC PDF filler for `noc_listing_form.pdf` using legacy coordinate logic.
-- Header injection in listing agreement PDF: logo (left), establishment name (center), ORN (right).
-- Optional signature upload with preview before PDF generation.
-- Profile settings module to store company defaults per account:
-	- Logo
-	- Stamp
-	- Establishment Name
-	- Office Address
-	- Office Phone
-	- Office Email
-	- ORN
-	- DED License
-	- PO Box
-- Real Estate Guide module (shared articles):
-	- Markdown editor + live preview
-	- Cover image upload
-	- Inline image upload into markdown
-	- Table of contents from headings
-	- Create/edit/delete with role-based permissions
-- Authentication with database-backed users and cookie sessions.
-- User roles:
-	- `admin`: manage users + roles, full article access
-	- `editor`: create/edit/delete articles
-	- `viewer`: read-only article access
-- Module navigation for PDF extractor, image resize, e-signature, watermark tools.
+- Form I / Agent-to-Agent PDF generation using template coordinate mapping.
+- Listing NOC PDF filling using the listing NOC template.
+- EJARI form workflow with template-based PDF export (preview + download).
+- Profile settings for reusable company defaults:
+  - Logo and stamp
+  - Establishment and office details
+  - ORN, DED License, and PO Box
+- Real Estate Guide module:
+  - Markdown editor with live preview
+  - Cover image and inline markdown image support
+  - Heading-based table of contents
+  - Role-based create, edit, and delete permissions
+- Utility modules:
+  - PDF image extractor
+  - Image resizer
+  - E-signature creator
+  - Watermark tool
+  - Watermark remover
 - Contact module for bug reports and feature requests via WhatsApp.
 
-## Data Storage
+## Authentication and Roles
+
+- Cookie-based session authentication.
+- Database-backed users and roles.
+- Role levels:
+  - admin: user and role management, full guide access
+  - editor: create, edit, and delete guide articles
+  - viewer: read-only guide access
+
+## Data and Storage
 
 - Supabase Postgres stores users, sessions, roles, profiles, and guide articles.
-- Apply schema from `supabase/schema.sql` in your Supabase SQL editor.
-- Session auth is cookie-based (`HttpOnly`, `SameSite=Lax`).
-- Uploaded images in profile/guide are stored as data URLs in the database.
+- Apply the database schema from supabase/schema.sql before first run.
+- Session cookies use HttpOnly and SameSite=Lax.
+- Profile and guide images are stored as data URLs.
 
-## Templates Used
+## Templates and Assets
 
-- `public/agent-to-agent.pdf`
-- `public/noc_listing_form.pdf`
+- public/agent-to-agent.pdf
+- public/noc_listing_form.pdf
+- public/ejari-template.pdf
 
 ## Routes
 
-- `/` Home
-- `/agent-to-agent-form` Form I generator
-- `/listing-noc-form` Listing NOC form filler
-- `/pdf-template-filler` Legacy route redirect to `/listing-noc-form`
-- `/real-estate-guide` Guide/article module (public read-only, role-based create/edit/delete)
-- `/pdf-image-extractor` PDF image extractor
-- `/image-resize` Image resizer
-- `/e-signature` E-signature tool
-- `/watermark` Watermark tool
-- `/watermark-remover` Watermark remover
-- `/contact` Contact and requests module (WhatsApp: +971506422370)
-- `/profile-settings` Protected profile settings
-- `/login` Login
-- `/register` Registration
+- /: Home dashboard
+- /agent-to-agent-form: Form I / Agent-to-Agent form
+- /listing-noc-form: Listing NOC form
+- /ejari-form: EJARI form and PDF export
+- /real-estate-guide: Guide/article module
+- /pdf-image-extractor: PDF image extraction tool
+- /image-resize: Image resize tool
+- /e-signature: E-signature tool
+- /watermark: Watermark tool
+- /watermark-remover: Watermark remover tool
+- /contact: Contact and requests
+- /profile-settings: Protected profile settings
+- /login: Login
+- /register: Register
+- /pdf-template-filler: Legacy redirect to /listing-noc-form
+- /wiki: Legacy redirect to /real-estate-guide
 
-## API Notes
+## API Overview
 
-- API is served by Nuxt Nitro inside the same app process (no separate backend process needed).
-- Example endpoints:
-	- `/api/auth/login`
-	- `/api/auth/me`
-	- `/api/auth/users` (admin)
-	- `/api/guide-articles`
+Nuxt Nitro serves API routes in the same application process.
 
-## Contact and Support
+Common endpoints:
 
-- For bug reports and feature requests, use the Contact module in the app.
-- Quick contact link uses WhatsApp to: `+971506422370`.
-- Project note shown in the Contact module: tools are provided for free for admins who may not have access to paid tools.
+- /api/auth/login
+- /api/auth/me
+- /api/auth/users (admin)
+- /api/guide-articles
 
 ## Setup
 
-Install dependencies:
+1. Install dependencies:
 
 ```bash
 npm install
 ```
 
-Create environment variables:
+2. Create a .env file with:
 
 ```bash
 SUPABASE_URL=your_supabase_project_url
@@ -93,30 +93,26 @@ GOOGLE_CLIENT_ID=your_google_oauth_client_id
 GOOGLE_CLIENT_SECRET=your_google_oauth_client_secret
 ```
 
-Then run SQL from `supabase/schema.sql` in Supabase before starting the app.
+3. Run the SQL in supabase/schema.sql in your Supabase project.
 
-Google OAuth setup:
+4. Configure Google OAuth redirect URIs:
 
-- In Google Cloud Console, create OAuth 2.0 Client ID (Web application).
-- Add Authorized redirect URI:
-	- Local: `http://localhost:3000/api/auth/google/callback`
-	- Production: `https://your-domain.com/api/auth/google/callback`
+- Local: http://localhost:3000/api/auth/google/callback
+- Production: https://your-domain.com/api/auth/google/callback
 
-## Development
+## Development and Build
 
-Run local dev server:
+Run dev server:
 
 ```bash
 npm run dev
 ```
 
-Expose on network (optional):
+Run dev server on network:
 
 ```bash
 npm run dev -- --host
 ```
-
-## Build
 
 Create production build:
 
@@ -130,10 +126,10 @@ Preview production build:
 npm run preview
 ```
 
-Run production server directly:
+Generate static output (if needed):
 
 ```bash
-node .output/server/index.mjs
+npm run generate
 ```
 
 ## Tech Stack
@@ -142,8 +138,9 @@ node .output/server/index.mjs
 - Vue 3
 - TypeScript
 - Tailwind CSS
-- @supabase/supabase-js
-- markdown-it
-- markdown-it-anchor
+- Supabase
 - pdf-lib
 - pdfjs-dist
+- markdown-it
+- markdown-it-anchor
+- jszip
