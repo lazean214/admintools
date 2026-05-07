@@ -182,7 +182,9 @@ async function generateEjariPdf() {
     const pdfDoc = await PDFDocument.load(templateBytes)
     const pages = pdfDoc.getPages()
     const page = pages[0]
-    const height = page.getHeight()
+    if (!page) throw new Error('EJARI template does not contain a first page.')
+    const firstPage = page
+    const height = firstPage.getHeight()
     const page3 = pages[2]
     const page3Height = page3?.getHeight() ?? 0
 
@@ -205,7 +207,7 @@ async function generateEjariPdf() {
         text = `${text.slice(0, -1)}`
       }
 
-      page.drawText(text, {
+      firstPage.drawText(text, {
         x,
         y: yValue,
         size,
@@ -216,7 +218,7 @@ async function generateEjariPdf() {
     function drawCheck(checked: boolean, xMm: number, topMm: number) {
       if (!checked) return
 
-      page.drawText('X', {
+      firstPage.drawText('X', {
         x: mmToPt(xMm + FIXED_CHECK_ALIGNMENT.checkXOffset),
         y: fromTop(topMm + FIXED_CHECK_ALIGNMENT.checkYOffset),
         size: 10,
@@ -224,9 +226,7 @@ async function generateEjariPdf() {
       })
     }
 
-    function drawFieldOnPage(targetPage: typeof page, targetHeight: number, value: string, xMm: number, topMm: number, widthMm: number) {
-      if (!targetPage) return
-
+    function drawFieldOnPage(targetPage: typeof firstPage, targetHeight: number, value: string, xMm: number, topMm: number, widthMm: number) {
       const x = mmToPt(xMm + FIXED_TEXT_ALIGNMENT.xOffset)
       const yValue = targetHeight - mmToPt(topMm + FIXED_TEXT_ALIGNMENT.yOffset)
 
