@@ -406,7 +406,7 @@ async function generateListingPdf() {
     if (form.propertyRental.trim()) {
       ctx.font = `bold ${s(4.5)}px Arial`
       ctx.fillStyle = '#1e293b'
-      ctx.fillText(form.propertyRental, s(M + 3), s(curY + 9.5))
+      ctx.fillText(form.propertyRental, s(M + 3), s(curY - 2))
     }
     curY += 16
 
