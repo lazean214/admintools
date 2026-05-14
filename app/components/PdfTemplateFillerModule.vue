@@ -406,7 +406,7 @@ async function generateListingPdf() {
     if (form.propertyRental.trim()) {
       ctx.font = `bold ${s(4.5)}px Arial`
       ctx.fillStyle = '#1e293b'
-      ctx.fillText(form.propertyRental, s(M + 3), s(curY - 2))
+      ctx.fillText(form.propertyRental, s(M + 3), s(curY + 9.5))
     }
     curY += 16
 
@@ -522,7 +522,7 @@ async function generateListingPdf() {
     if (form.ownerSignatureName.trim()) {
       ctx.font = `400 ${s(2.5)}px Arial`
       ctx.fillStyle = '#1e293b'
-      ctx.fillText(form.ownerSignatureName, s(W / 2), s(curY + sigBoxH + 9.5))
+      ctx.fillText(form.ownerSignatureName, s(W / 2), s(curY + sigBoxH - 2))
     }
 
     ctx.font = `italic ${s(2.4)}px Arial`
