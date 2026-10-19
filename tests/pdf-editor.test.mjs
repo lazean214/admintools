@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile, mkdir, writeFile } from 'node:fs/promises'
 import { PDFDocument, StandardFonts, PDFName, PDFString } from 'pdf-lib'
 import init, { PdfEditorDocument } from '../app/wasm/ejari/admintools_ejari.js'
-import { encodeEditorText, editorColor, validateEditorState, PdfEditorClient } from '../app/utils/pdf-editor.ts'
+import { applyEditorTransaction, countEditorChanges, encodeEditorText, editorColor, validateEditorState, PdfEditorClient, createBlankEditorPdf, createSampleEditorPdf } from '../app/utils/pdf-editor.ts'
 
 await init({module_or_path:await readFile(new URL('../app/wasm/ejari/admintools_ejari_bg.wasm',import.meta.url))})
 const fixture=await PDFDocument.create()
@@ -42,6 +42,7 @@ test('Rust replaces original text operators and keeps replacement selectable wit
 test('source text streams shared by pages are cloned before editing',async()=>{
   const shared=await PDFDocument.load(source)
   shared.getPage(1).node.set(PDFName.of('Contents'),shared.getPage(0).node.get(PDFName.of('Contents')))
+  shared.getPage(1).node.set(PDFName.of('Resources'),shared.getPage(0).node.get(PDFName.of('Resources')))
   const doc=new PdfEditorDocument(await shared.save({useObjectStreams:false}))
   const row=JSON.parse(doc.inspect(0)).texts[0]
   doc.replace_text(0,row.id,row.text,'Only page one changed')
@@ -115,4 +116,37 @@ test('worker client transfers inputs and cancellation rejects pending work befor
   workers[1].onmessage({data:{id:workers[1].message.id,type:'inspection',value:{texts:[],images:[]}}})
   assert.equal((await second).type,'inspection')
   client.cancel()
+})
+
+test('blank and sample starter PDFs open in independent parsers and expose editable sample text and images',async()=>{
+  assert.equal((await PDFDocument.load(createBlankEditorPdf())).getPageCount(),1)
+  const sample=createSampleEditorPdf()
+  assert.equal((await PDFDocument.load(sample)).getPageCount(),2)
+  const doc=new PdfEditorDocument(new Uint8Array(sample))
+  const info=JSON.parse(doc.inspect(0))
+  assert.ok(info.texts.some(run=>run.text==='Click this text to edit it'))
+  assert.equal(info.images[0].name,'Im1')
+  doc.free()
+})
+
+
+test('preview transactions preserve model and history on failure or cancellation',async()=>{
+  let session=1,model='original',history=['previous'],disposed=0
+  const commit=value=>{history.push(model);model=value}
+  await assert.rejects(applyEditorTransaction(async()=>{throw new Error('preview failed')},()=>true,commit,()=>{disposed++}))
+  assert.equal(model,'original');assert.deepEqual(history,['previous'])
+  const pending=applyEditorTransaction(async()=>{session=2;return 'stale'},()=>session===1,commit,()=>{disposed++})
+  assert.equal(await pending,false);assert.equal(disposed,1)
+  assert.equal(model,'original');assert.deepEqual(history,['previous'])
+  assert.equal(await applyEditorTransaction(async()=>'updated',()=>session===2,commit,()=>{}),true)
+  assert.equal(model,'updated');assert.deepEqual(history,['previous','original'])
+})
+
+test('page-only changes count rotation, ordering and deletion',()=>{
+  const pages=[{source:0,rotation:0,width:400,height:500},{source:1,rotation:0,width:400,height:500}]
+  const state={pages:structuredClone(pages),texts:[],images:[],layers:[]}
+  assert.equal(countEditorChanges(state,pages),0)
+  state.pages[0].rotation=90;assert.equal(countEditorChanges(state,pages),1)
+  state.pages=structuredClone(pages).reverse();assert.equal(countEditorChanges(state,pages),2)
+  state.pages=[structuredClone(pages[0])];assert.equal(countEditorChanges(state,pages),1)
 })

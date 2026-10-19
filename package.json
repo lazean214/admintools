@@ -3,13 +3,14 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "prebuild": "node scripts/generate-ejari-template-data.mjs",
-    "predev": "node scripts/generate-ejari-template-data.mjs",
-    "pregenerate": "node scripts/generate-ejari-template-data.mjs",
+    "prebuild": "node scripts/prepare-assets.mjs",
+    "predev": "node scripts/prepare-assets.mjs",
+    "pregenerate": "node scripts/prepare-assets.mjs",
     "build:wasm": "node scripts/build-wasm.mjs",
     "build:wasm:ejari": "node scripts/build-wasm.mjs --ejari",
     "test:ejari": "node --experimental-strip-types --import ./scripts/register-types.mjs --test tests/ejari.test.mjs",
     "test:auth": "node --experimental-strip-types --import ./scripts/register-types.mjs --test tests/auth.test.mjs tests/auth-body.test.mjs",
+    "test:pdf-editor": "node --experimental-strip-types --import ./scripts/register-types.mjs --test tests/pdf-editor.test.mjs",
     "typecheck:server": "tsc --project .nuxt/tsconfig.server.json --noEmit",
     "test:processing": "node --experimental-strip-types --import ./scripts/register-types.mjs --test tests/processing.test.mjs",
     "benchmark:resize": "node scripts/benchmark-resize.mjs",
@@ -18,18 +19,35 @@
     "dev": "nuxt dev",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare",
+    "test:pdf-ocr": "node --experimental-strip-types --import ./scripts/register-types.mjs --test tests/pdf-ocr.test.mjs",
+    "start": "node .output/server/index.mjs",
+    "security:secrets": "node scripts/check-secrets.mjs --history",
+    "test:security": "node --experimental-strip-types --import ./scripts/register-types.mjs --test tests/security.test.mjs",
+    "test": "node --experimental-strip-types --import ./scripts/register-types.mjs --test tests/processing.test.mjs tests/ejari.test.mjs tests/auth.test.mjs tests/auth-body.test.mjs tests/pdf-editor.test.mjs tests/pdf-ocr.test.mjs tests/security.test.mjs",
+    "audit:production": "npm audit --omit=dev --audit-level=high"
   },
   "dependencies": {
-    "@nuxtjs/tailwindcss": "^6.14.0",
     "@supabase/supabase-js": "^2.103.0",
+    "@tesseract.js-data/eng": "1.0.0",
     "jszip": "^3.10.1",
     "markdown-it": "^14.1.1",
     "markdown-it-anchor": "^9.2.0",
-    "nuxt": "^4.4.2",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "^5.6.205",
+    "pdfjs-dist": "^6.4.299",
+    "tesseract.js": "7.0.0",
     "vue": "^3.5.32",
     "vue-router": "^5.0.4"
+  },
+  "overrides": {
+    "postcss-selector-parser": "^7.1.6"
+  },
+  "devDependencies": {
+    "nuxt": "^4.4.2",
+    "@nuxtjs/tailwindcss": "^6.14.0",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=24.15.0 <25"
   }
 }

@@ -100,6 +100,16 @@ export class PdfEditorDocument {
         }
     }
     /**
+     * Reconstruct a page without retaining its scanned bitmap or original text.
+     * @param {number} page
+     */
+    clear_page(page) {
+        const ret = wasm.pdfeditordocument_clear_page(this.__wbg_ptr, page);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
      * @param {Uint32Array} order
      * @param {Uint32Array} rotations
      * @returns {Uint8Array}

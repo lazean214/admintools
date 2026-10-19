@@ -16,8 +16,10 @@ scope.onmessage=async({data}:MessageEvent<EditorRequest>)=>{
     initialized??=init({module_or_path:wasmUrl});await initialized
     doc=new PdfEditorDocument(new Uint8Array(data.source))
     if (data.operation==='inspect') {
+      if(data.state.rebuilt?.includes(data.page??0)){send({id:data.id,type:'inspection',value:{texts:[],images:[]}});return}
       send({id:data.id,type:'inspection',value:JSON.parse(doc.inspect(data.page??0))});return
     }
+    for (const page of data.state.rebuilt??[]) doc.clear_page(page)
     for (const edit of data.state.texts) doc.replace_text(edit.page,edit.run,edit.expected,edit.value)
     const assets=new Map(data.assets.map(asset=>[asset.id,asset]))
     for (const edit of data.state.images) {

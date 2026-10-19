@@ -532,7 +532,7 @@ async function generateListingPdf() {
     if (snapshot.ownerSignatureName.trim()) {
       ctx.font = `400 ${s(2.5)}px Arial`
       ctx.fillStyle = '#1e293b'
-      ctx.fillText(snapshot.ownerSignatureName, s(W / 2), s(curY + sigBoxH + 9.5))
+      ctx.fillText(snapshot.ownerSignatureName, s(W / 2), s(curY + sigBoxH - 2))
     }
 
     ctx.font = `italic ${s(2.4)}px Arial`

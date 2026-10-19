@@ -11,6 +11,7 @@ export const pdfeditordocument_add_link: (a: number, b: number, c: number, d: nu
 export const pdfeditordocument_add_path: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
 export const pdfeditordocument_add_shape: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => [number, number];
 export const pdfeditordocument_add_text: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number];
+export const pdfeditordocument_clear_page: (a: number, b: number) => [number, number];
 export const pdfeditordocument_finish: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
 export const pdfeditordocument_inspect: (a: number, b: number) => [number, number, number, number];
 export const pdfeditordocument_new: (a: number, b: number) => [number, number, number];

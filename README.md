@@ -17,6 +17,7 @@ Nuxt 4 application for real estate admin workflows, including template-based PDF
   - Heading-based table of contents
   - Role-based create, edit, and delete permissions
 - Utility modules:
+  - PDF editor with supported original-text editing and selectable text export
   - PDF image extractor
   - Image resizer
   - E-signature creator
@@ -54,6 +55,7 @@ Nuxt 4 application for real estate admin workflows, including template-based PDF
 - /ejari-form: EJARI form and PDF export
 - /real-estate-guide: Guide/article module
 - /pdf-image-extractor: PDF image extraction tool
+- /pdf-editor: Local PDF editing and page organization
 - /image-resize: Image resize tool
 - /e-signature: E-signature tool
 - /watermark: Watermark tool
@@ -430,3 +432,94 @@ chunked and declared oversized uploads, UTF-8 credential preservation,
 unsupported media types/compression, timeouts, aborted connections and recovery.
 These reader limits target the configured Node server; deployments should also
 apply their gateway's request-size/time limits before data reaches the app.
+
+## PDF editor
+
+Open /pdf-editor from the Tools menu or dashboard. Its document-first toolbar
+is inspired by Sejda's editor workflow, with this application's styling and local
+browser processing. Open a PDF, start a blank A4 document, or try the explicitly
+labeled two-page sample.
+
+Implemented tools:
+- Edit supported existing text runs in their original font. Rust rewrites the
+  selected text-showing operation; replacement text remains selectable. It does
+  not paint a white rectangle over the original text. Unsupported replacement
+  glyphs produce an error rather than silently dropping characters.
+- Add selectable Helvetica text with size, color, bold, placement, multiline
+  content, dragging and resizing.
+- Recognize English text on the current page, review/edit/exclude recognized
+  lines, then convert that page into editable PDF text layers.
+- Add PNG/JPEG/WebP images, replace/remove direct page image XObjects at their
+  original placement, and add typed or drawn visual signature images.
+- Add whiteout, highlights, rectangles, ellipses, lines, freehand drawings and
+  external HTTP/HTTPS/mailto link regions.
+- Reorder, rotate or remove pages; undo/redo up to 40 snapshots; zoom; and apply
+  changes to prepare an explicit completed-PDF download.
+
+PDF.js renders previews with its matching self-hosted worker. A dedicated editor
+worker uses the pinned lopdf Rust/WASM engine to inspect/edit/save the PDF. Page
+content and resource dictionaries are cloned before modification, so editing
+shared streams/fonts/images does not accidentally change other pages. Export
+keeps PDF vector/text objects rather than rasterizing the document. Worker
+buffers are transferred; cancellation and navigation terminate pending work.
+The source, assets, history and completed Blob URL are kept locally for the
+session and released on replacement/navigation.
+
+Limits: source PDFs up to 32 MB / 100 pages / 100000 objects, page content up to
+4 MiB decompressed / 100000 operations, at most 400 user edits and 500 low-level
+operations per export. Images are limited to 8 MB per file / 12 megapixels;
+retained image assets to 16 / 64 MB. Completed PDFs are capped at 128 MB.
+
+Original text editing is limited by the PDF's font encodings and available
+glyphs. Text drawn inside nested Form XObjects, outlines and scans is not offered
+as directly editable text. Scans can use the OCR conversion below; full
+paragraph reflow is not included. Replacement
+keeps original position/size, so longer text should be checked for overlap.
+Added text supports Latin and WinAnsi symbols. This version does not include
+Sejda's complete interactive form-authoring feature set, font replacement,
+cloud integrations, attachments or digital signing. PDFs with signature fields
+and encrypted PDFs are rejected. Whiteout, image removal and page organization
+are not secure-redaction tools. Existing PDF metadata/bookmark/form behavior
+outside the tested edits is not a claim of full PDF-feature compatibility.
+
+Run npm run test:pdf-editor for Rust/WASM and client tests. Fixtures verify
+original-text replacement, selectable added text, shared stream isolation,
+image replacement/transparency, page ordering/rotation/deletion, unsafe link
+rejection, malformed edits, starter PDFs and cancellation/retry. The generated
+.cache/pdf-editor-proof/edited.pdf was reopened with pypdf: the replacement and
+added text extracted correctly, the original string was absent, and the link
+annotation remained. Poppler rendering verified text, transparency and shapes.
+Browser checks exercised original-text replacement, text-layer insertion/style,
+signature drawing and preparation of a completed PDF. The processing type check
+includes the editor component, composable and worker.
+
+### English OCR to editable PDF
+
+Choose **OCR / Editable page** on the current page, review the recognized lines and
+correct or exclude them, then choose **Convert to editable page**. Conversion
+reconstructs that page with selectable, editable Helvetica/WinAnsi text at
+approximate recognized positions. It removes the page's original scanned image,
+graphics, annotations/forms and previously added layers. Other pages remain
+unchanged. Undo restores the previous page, including its scan. This produces an
+editable PDF; it does not export Word or place a hidden searchable text overlay
+over the retained scan. Review recognition and layout before exporting.
+
+OCR runs locally using the self-hosted Tesseract.js 7.0.0 worker and its C++ WASM
+engine, with English data pinned to @tesseract.js-data/eng 1.0.0. The worker,
+WASM and model files are generated into ignored public/ocr/v7/ by
+scripts/prepare-assets.mjs during predev/prebuild/pregenerate. Normal npm dev and
+build commands prepare these assets; recognition makes no external OCR request.
+The native-worker adapter follows the pinned version-7 protocol so Cancel can
+terminate model initialization as well as recognition.
+
+Recognition handles one English page at a time, with a raster capped at 12
+megapixels and 8192 pixels per side, up to 400 recognized lines, and a 150-second
+worker timeout. Unsupported WinAnsi characters are excluded initially and must
+be corrected or excluded before conversion. Original fonts, exact layout,
+graphics and full paragraph reflow are not reconstructed.
+
+Run `npm run test:pdf-ocr` for line mapping, review/rebuild, worker cancellation
+and real English OCR coverage. OCR verification also covers exported-PDF reopen
+and a second text edit; local pypdf extraction confirmed recognized text without
+a retained scan image. Use `npm run test:pdf-editor` for the PDF engine and
+shared editing regressions.

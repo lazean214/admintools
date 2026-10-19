@@ -1,5 +1,6 @@
 import { createError, deleteCookie, getCookie, getQuery, getRequestURL, sendRedirect } from 'h3'
 import { createSession, findOrCreateOAuthUser } from '../../../utils/auth-db'
+import { normalizeAuthRedirect } from '../../../utils/auth-redirect'
 
 const GOOGLE_STATE_COOKIE = 'oauth-google-state'
 const GOOGLE_REDIRECT_COOKIE = 'oauth-google-redirect'
@@ -15,14 +16,6 @@ type GoogleUserInfo = {
   name?: string
 }
 
-function normalizeRedirect(value: string | undefined) {
-  if (!value || !value.startsWith('/') || value.startsWith('//')) {
-    return '/profile-settings'
-  }
-
-  return value
-}
-
 export default defineEventHandler(async (event) => {
   const clientId = process.env.GOOGLE_CLIENT_ID
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET
@@ -36,7 +29,7 @@ export default defineEventHandler(async (event) => {
   const oauthError = typeof query.error === 'string' ? query.error : ''
 
   const expectedState = getCookie(event, GOOGLE_STATE_COOKIE)
-  const savedRedirect = normalizeRedirect(getCookie(event, GOOGLE_REDIRECT_COOKIE))
+  const savedRedirect = normalizeAuthRedirect(getCookie(event, GOOGLE_REDIRECT_COOKIE))
 
   deleteCookie(event, GOOGLE_STATE_COOKIE, { path: '/' })
   deleteCookie(event, GOOGLE_REDIRECT_COOKIE, { path: '/' })

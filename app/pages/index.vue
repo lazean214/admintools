@@ -57,6 +57,13 @@ const baseModules = [
     icon: 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z'
   },
   {
+    title: 'PDF Editor',
+    description: 'Edit text, add images and signatures, annotate and organize PDF pages.',
+    path: '/pdf-editor',
+    action: 'Open PDF Editor',
+    icon: 'M12 20h9M16.5 3.5a2.12 2.12 0 013 3L9 17l-4 1 1-4L16.5 3.5z'
+  },
+  {
     title: 'Image Resize',
     description: 'Resize one or many images while keeping aspect ratio and previewing files first.',
     path: '/image-resize',

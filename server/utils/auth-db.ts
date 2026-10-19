@@ -102,7 +102,7 @@ function toPublicUser(row: UserRow): AuthPublicUser {
 function throwSupabaseError(error: { message: string } | null, fallbackMessage: string): never {
   throw createError({
     statusCode: 500,
-    statusMessage: error?.message || fallbackMessage
+    statusMessage: fallbackMessage
   })
 }
 

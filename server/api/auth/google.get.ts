@@ -1,24 +1,9 @@
 import { randomBytes } from 'node:crypto'
 import { createError, getQuery, getRequestURL, sendRedirect, setCookie } from 'h3'
+import { normalizeAuthRedirect } from '../../utils/auth-redirect'
 
 const GOOGLE_STATE_COOKIE = 'oauth-google-state'
 const GOOGLE_REDIRECT_COOKIE = 'oauth-google-redirect'
-
-function normalizeRedirect(value: unknown) {
-  if (typeof value !== 'string') {
-    return '/profile-settings'
-  }
-
-  if (!value.startsWith('/')) {
-    return '/profile-settings'
-  }
-
-  if (value.startsWith('//')) {
-    return '/profile-settings'
-  }
-
-  return value
-}
 
 export default defineEventHandler((event) => {
   const clientId = process.env.GOOGLE_CLIENT_ID
@@ -27,7 +12,7 @@ export default defineEventHandler((event) => {
   }
 
   const query = getQuery(event)
-  const redirectPath = normalizeRedirect(query.redirect)
+  const redirectPath = normalizeAuthRedirect(query.redirect)
   const state = randomBytes(24).toString('hex')
   const requestUrl = getRequestURL(event)
   const redirectUri = `${requestUrl.origin}/api/auth/google/callback`

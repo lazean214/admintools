@@ -2,7 +2,21 @@
 export default defineNuxtConfig({
   ssr: true,
   compatibilityDate: '2025-07-15',
-  devtools: { enabled: true },
+  devtools: { enabled: false },
+  sourcemap: { client: false, server: false },
+  routeRules: {
+    '/**': {
+      headers: {
+        'X-Content-Type-Options': 'nosniff',
+        'X-Frame-Options': 'SAMEORIGIN',
+        'Referrer-Policy': 'strict-origin-when-cross-origin',
+        'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+        'Content-Security-Policy': "frame-ancestors 'self'; object-src 'none'; base-uri 'self'"
+      }
+    },
+    '/api/**': { headers: { 'Cache-Control': 'no-store' } },
+    '/profile-settings': { headers: { 'Cache-Control': 'no-store' } }
+  },
   modules: ['@nuxtjs/tailwindcss'],
   css: ['~/assets/css/tailwind.css'],
   app: {

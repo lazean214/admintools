@@ -37,6 +37,16 @@ create table if not exists public.guide_articles (
 
 create index if not exists idx_guide_articles_updated_at on public.guide_articles(updated_at desc);
 
+-- Server-only tables: public API access must go through Nitro authorization.
+-- The service_role key bypasses RLS and must never reach browser code.
+alter table public.auth_users enable row level security;
+alter table public.auth_sessions enable row level security;
+alter table public.guide_articles enable row level security;
+revoke all privileges on table public.auth_users, public.auth_sessions,
+  public.guide_articles from public, anon, authenticated;
+grant select, insert, update, delete on table public.auth_users,
+  public.auth_sessions, public.guide_articles to service_role;
+
 -- Optional helper trigger to keep updated_at current if you perform direct SQL updates.
 create or replace function public.set_updated_at()
 returns trigger

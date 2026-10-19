@@ -4,6 +4,7 @@
 .nuxt
 .nitro
 .cache
+public/ocr/
 dist
 
 # Node dependencies
@@ -28,3 +29,31 @@ logs
 .env
 .env.*
 !.env.example
+
+# Credentials and local deployment/account state
+.vercel/
+.netlify/
+.supabase/
+.aws/
+.ssh/
+.npmrc
+.pypirc
+credentials.json
+service-account*.json
+*-service-account.json
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# Private data, generated documents and local review captures
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.backup
+.impeccable/review/
+tmp/
+coverage/

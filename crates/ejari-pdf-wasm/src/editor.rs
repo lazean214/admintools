@@ -127,6 +127,18 @@ impl PdfEditorDocument {
         Ok(())
     }
 
+    /// Reconstruct a page without retaining its scanned bitmap or original text.
+    pub fn clear_page(&mut self, page: u32) -> Result<(), JsValue> {
+        self.budget()?;
+        let id = self.page(page)?;
+        let content = self.doc.add_object(Stream::new(Dictionary::new(), Vec::new()));
+        let dict = self.doc.get_dictionary_mut(id).map_err(error)?;
+        dict.set("Contents", content);
+        dict.set("Resources", Dictionary::new());
+        dict.remove(b"Annots");
+        Ok(())
+    }
+
     pub fn add_text(&mut self, page: u32, bytes: &[u8], x: f64, y: f64, size: f64, bold: bool, color: &[f64]) -> Result<(), JsValue> {
         self.budget()?; self.position(x,y)?; number(size,4.0,200.0)?; Self::color(color)?;
         if bytes.len() > 4096 || bytes.iter().any(|b| *b < 32 || *b == 127) { return Err(error("Invalid added text.")); }

@@ -17,6 +17,7 @@ const toolLinks = [
   { label: 'Form I', to: '/agent-to-agent-form' },
   { label: 'NOC', to: '/listing-noc-form' },
   { label: 'EJARI', to: '/ejari-form' },
+  { label: 'PDF Editor', to: '/pdf-editor' },
   { label: 'PDF Extract', to: '/pdf-image-extractor' },
   { label: 'Resize', to: '/image-resize' },
   { label: 'E-Sign', to: '/e-signature' },

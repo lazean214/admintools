@@ -9,6 +9,10 @@ export class PdfEditorDocument {
     add_path(page: number, points: Float64Array, color: Float64Array, stroke: number): void;
     add_shape(page: number, x: number, y: number, width: number, height: number, color: Float64Array, opacity: number, stroke: number, kind: number): void;
     add_text(page: number, bytes: Uint8Array, x: number, y: number, size: number, bold: boolean, color: Float64Array): void;
+    /**
+     * Reconstruct a page without retaining its scanned bitmap or original text.
+     */
+    clear_page(page: number): void;
     finish(order: Uint32Array, rotations: Uint32Array): Uint8Array;
     inspect(page: number): string;
     constructor(bytes: Uint8Array);
@@ -52,6 +56,7 @@ export interface InitOutput {
     readonly pdfeditordocument_add_path: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
     readonly pdfeditordocument_add_shape: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => [number, number];
     readonly pdfeditordocument_add_text: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number];
+    readonly pdfeditordocument_clear_page: (a: number, b: number) => [number, number];
     readonly pdfeditordocument_finish: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
     readonly pdfeditordocument_inspect: (a: number, b: number) => [number, number, number, number];
     readonly pdfeditordocument_new: (a: number, b: number) => [number, number, number];
