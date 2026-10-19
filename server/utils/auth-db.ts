@@ -1,7 +1,9 @@
-import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import type { H3Event } from 'h3'
 import { createError, deleteCookie, getCookie, setCookie } from 'h3'
 import { getSupabaseAdminClient } from './supabase-admin'
+import { hashPassword, verifyPassword } from './passwords'
+import { parseLoginInput, parseRegisterInput } from './auth-input'
 
 export type ProfileSettings = {
   establishmentName: string
@@ -80,24 +82,6 @@ export function sanitizeProfile(value: unknown): ProfileSettings {
   }
 }
 
-function hashPassword(password: string, salt?: string) {
-  const activeSalt = salt || randomBytes(16).toString('hex')
-  const hash = scryptSync(password, activeSalt, 64).toString('hex')
-  return {
-    hash,
-    salt: activeSalt
-  }
-}
-
-function verifyPassword(password: string, hash: string, salt: string) {
-  const candidate = scryptSync(password, salt, 64)
-  const actual = Buffer.from(hash, 'hex')
-  if (candidate.length !== actual.length) {
-    return false
-  }
-  return timingSafeEqual(candidate, actual)
-}
-
 function normalizeRole(value: unknown): UserRole {
   if (value === 'admin' || value === 'editor' || value === 'viewer') {
     return value
@@ -152,25 +136,17 @@ async function getUserByEmail(email: string) {
   return data
 }
 
-export async function registerUser(input: { name: string; email: string; password: string }) {
+export async function registerUser(payload: unknown) {
+  const input = parseRegisterInput(payload)
   const supabase = getSupabaseAdminClient()
-  const email = input.email.trim().toLowerCase()
-  const name = input.name.trim()
-
-  if (!name || !email || !input.password) {
-    throw createError({ statusCode: 400, statusMessage: 'Name, email, and password are required.' })
-  }
-
-  if (input.password.length < 6) {
-    throw createError({ statusCode: 400, statusMessage: 'Password must be at least 6 characters.' })
-  }
+  const {email,name} = input
 
   const existing = await getUserByEmail(email)
   if (existing) {
     throw createError({ statusCode: 409, statusMessage: 'An account with this email already exists.' })
   }
 
-  const { hash, salt } = hashPassword(input.password)
+  const { hash, salt } = await hashPassword(input.password)
   const now = new Date().toISOString()
 
   const { data, error } = await supabase
@@ -196,15 +172,19 @@ export async function registerUser(input: { name: string; email: string; passwor
   return toPublicUser(data)
 }
 
-export async function loginUser(input: { email: string; password: string }) {
-  const email = input.email.trim().toLowerCase()
+export async function loginUser(payload: unknown) {
+  const input = parseLoginInput(payload)
+  const email = input.email
   const row = await getUserByEmail(email)
 
   if (!row) {
+    // Unknown accounts also perform a derivation; both cases return the same
+    // public error. Database lookup timing can still vary.
+    await verifyPassword(input.password,'00'.repeat(64),'00'.repeat(16))
     throw createError({ statusCode: 401, statusMessage: 'Invalid email or password.' })
   }
 
-  const isValid = verifyPassword(input.password, row.password_hash, row.password_salt)
+  const isValid = await verifyPassword(input.password, row.password_hash, row.password_salt)
   if (!isValid) {
     throw createError({ statusCode: 401, statusMessage: 'Invalid email or password.' })
   }
@@ -425,7 +405,7 @@ export async function findOrCreateOAuthUser(input: { email: string; name: string
   }
 
   const randomPassword = randomBytes(24).toString('hex')
-  const { hash, salt } = hashPassword(randomPassword)
+  const { hash, salt } = await hashPassword(randomPassword)
   const now = new Date().toISOString()
 
   const { data, error } = await supabase

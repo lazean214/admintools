@@ -1,0 +1,22 @@
+[package]
+name = "admintools-processing"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+fast_image_resize = "=6.1.0"
+miniz_oxide = "=0.8.9"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "=0.2.114"
+js-sys = "=0.3.91"
+
+[profile.release]
+lto = true
+opt-level = 3
+codegen-units = 1
+panic = "abort"

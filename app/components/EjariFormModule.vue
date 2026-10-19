@@ -1,5 +1,24 @@
 <script setup lang="ts">
-import { PDFDocument, StandardFonts } from 'pdf-lib'
+import { ejariFields } from '../utils/ejari'
+import { renderEjariPages } from '../utils/ejari-render'
+import { loadEjariTemplate } from '../utils/ejari-template'
+import { ProcessingClient, ProcessingCancelledError } from '../utils/processing-client'
+
+const exporter = new ProcessingClient(() => new Worker(new URL('../workers/ejari.worker.ts', import.meta.url), { type:'module' }))
+let exportGeneration = 0
+let templateAbort: AbortController | null = null
+function cancelExport() {
+  exportGeneration++
+  templateAbort?.abort()
+  templateAbort = null
+  exporter.cancel()
+  generating.value = false
+  setStatus('EJARI export cancelled.')
+}
+onBeforeUnmount(() => {
+  cancelExport()
+  if (completedPdf.value) URL.revokeObjectURL(completedPdf.value.url)
+})
 
 type PropertyUsage = 'Residential' | 'Commercial' | 'Industrial'
 type PaymentMode = 'Cash' | 'Cheque' | 'Bank Transfer' | 'Other'
@@ -7,16 +26,7 @@ type PaymentMode = 'Cash' | 'Cheque' | 'Bank Transfer' | 'Other'
 const status = ref('Ready')
 const generating = ref(false)
 const validationErrors = ref<string[]>([])
-
-const FIXED_TEXT_ALIGNMENT = {
-  xOffset: 20,
-  yOffset: 35
-}
-
-const FIXED_CHECK_ALIGNMENT = {
-  checkXOffset: 20,
-  checkYOffset: 35
-}
+const completedPdf = ref<{ url: string; fileName: string } | null>(null)
 
 const licensingAuthorities = ['DLD', 'RERA', 'DED', 'Other']
 const propertyTypeOptions = ['Apartment', 'Villa', 'Townhouse', 'Office', 'Shop', 'Warehouse', 'Other']
@@ -87,37 +97,13 @@ function setStatus(message: string) {
   status.value = message
 }
 
-function formatMoney(value: string) {
-  const amount = Number(value)
-  if (!Number.isFinite(amount)) return value
-  return `AED ${amount.toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-}
-
-function toDdMmYyyy(dateString: string) {
-  if (!dateString) return ''
-  const date = new Date(dateString)
-  if (Number.isNaN(date.getTime())) return ''
-  const dd = String(date.getDate()).padStart(2, '0')
-  const mm = String(date.getMonth() + 1).padStart(2, '0')
-  const yyyy = date.getFullYear()
-  return `${dd}/${mm}/${yyyy}`
-}
-
-function downloadBlob(blob: Blob, fileName: string) {
-  const url = URL.createObjectURL(blob)
+function downloadCompletedPdf(url: string, fileName: string) {
   const anchor = document.createElement('a')
   anchor.href = url
   anchor.download = fileName
   document.body.appendChild(anchor)
   anchor.click()
   anchor.remove()
-  URL.revokeObjectURL(url)
-}
-
-function openBlobInNewTab(blob: Blob) {
-  const previewUrl = URL.createObjectURL(blob)
-  window.open(previewUrl, '_blank', 'noopener,noreferrer')
-  setTimeout(() => URL.revokeObjectURL(previewUrl), 60000)
 }
 
 function validateForm() {
@@ -166,148 +152,45 @@ function validateForm() {
 }
 
 async function generateEjariPdf() {
+  if (generating.value) return
   if (!validateForm()) {
     setStatus('Please fix form errors before exporting.')
     return
   }
-
+  const snapshot = { ...form }
+  const generation = ++exportGeneration
+  const controller = new AbortController()
+  templateAbort = controller
   generating.value = true
-  setStatus('Loading EJARI template...')
-
+  setStatus('Preparing EJARI export...')
   try {
-    const response = await fetch('/ejari-template.pdf')
-    if (!response.ok) throw new Error('Could not load ejari-template.pdf from public folder.')
-
-    const templateBytes = new Uint8Array(await response.arrayBuffer())
-    const pdfDoc = await PDFDocument.load(templateBytes)
-    const pages = pdfDoc.getPages()
-    const page = pages[0]
-    if (!page) throw new Error('EJARI template does not contain a first page.')
-    const firstPage = page
-    const height = firstPage.getHeight()
-    const page3 = pages[2]
-    const page3Height = page3?.getHeight() ?? 0
-
-    const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica)
-    const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
-
-    const mmToPt = (mm: number) => mm * (72 / 25.4)
-    const fromTop = (topMm: number) => height - mmToPt(topMm)
-
-    function drawField(value: string, xMm: number, topMm: number, widthMm: number) {
-      const x = mmToPt(xMm + FIXED_TEXT_ALIGNMENT.xOffset)
-      const yValue = fromTop(topMm + FIXED_TEXT_ALIGNMENT.yOffset)
-
-      const trimmed = (value || '').trim()
-      if (!trimmed) return
-
-      const size = 8
-      let text = trimmed
-      while (fontRegular.widthOfTextAtSize(text, size) > mmToPt(widthMm) && text.length > 0) {
-        text = `${text.slice(0, -1)}`
-      }
-
-      firstPage.drawText(text, {
-        x,
-        y: yValue,
-        size,
-        font: fontRegular,
-      })
+    const fields = ejariFields(snapshot)
+    const template = await loadEjariTemplate(controller.signal)
+    if (generation !== exportGeneration) return
+    setStatus('Rendering filled EJARI pages...')
+    const assertActive = () => {
+      if (generation !== exportGeneration) throw new ProcessingCancelledError()
     }
-
-    function drawCheck(checked: boolean, xMm: number, topMm: number) {
-      if (!checked) return
-
-      firstPage.drawText('X', {
-        x: mmToPt(xMm + FIXED_CHECK_ALIGNMENT.checkXOffset),
-        y: fromTop(topMm + FIXED_CHECK_ALIGNMENT.checkYOffset),
-        size: 10,
-        font: fontBold
-      })
-    }
-
-    function drawFieldOnPage(targetPage: typeof firstPage, targetHeight: number, value: string, xMm: number, topMm: number, widthMm: number) {
-      const x = mmToPt(xMm + FIXED_TEXT_ALIGNMENT.xOffset)
-      const yValue = targetHeight - mmToPt(topMm + FIXED_TEXT_ALIGNMENT.yOffset)
-
-      const trimmed = (value || '').trim()
-      if (!trimmed) return
-
-      const size = 8
-      let text = trimmed
-      while (fontRegular.widthOfTextAtSize(text, size) > mmToPt(widthMm) && text.length > 0) {
-        text = `${text.slice(0, -1)}`
-      }
-
-      targetPage.drawText(text, {
-        x,
-        y: yValue,
-        size,
-        font: fontRegular,
-      })
-    }
-
-    drawField(form.ownerName, 14, 27.2, 58)
-    drawField(form.lessorName, 14, 35.2, 58)
-    drawField(form.lessorEmiratesId, 17, 43.2, 58)
-    drawField(form.lessorLicensingAuthority, 136, 50.2, 40)
-    drawField(form.lessorLicenseNo, 14, 50.2, 44)
-
-    drawField(form.lessorEmail, 14, 60.2, 58)
-    drawField(form.lessorPhone, 14, 70.2, 58)
-
-    drawField(form.tenantName, 14, 88.2, 58)
-    drawField(form.tenantEmiratesId, 19, 94.2, 58)
-    drawField(form.tenantLicensingAuthority, 136, 102.2, 40)
-    drawField(form.tenantLicenseNo, 14, 102.2, 44)
-
-    drawField(form.tenantEmail, 14, 112.2, 58)
-    drawField(form.tenantPhone, 14, 122.2, 58)
-
-    // Property usage is represented by circle choices on the template.
-    // Draw an X at each choice center instead of writing the label text.
-    drawCheck(form.propertyUsage === 'Residential', 110.5, 141.2)
-    drawCheck(form.propertyUsage === 'Commercial', 70.5, 141.2)
-    drawCheck(form.propertyUsage === 'Industrial', 32.5, 141.2)
-    drawField(form.plotOrMakaniNo, 14, 145.2, 44)
-    drawField(form.buildingName, 14, 155.2, 45)
-    drawField(form.propertyNo, 136, 155.2, 48)
-    drawField(form.propertyType, 14, 164.2, 40)
-    drawField(String(form.propertyAreaSqm), 136, 164.2, 34)
-    drawField(form.location, 14, 174.2, 47)
-    drawField(form.premisesNoDewa, 136, 174.2, 50)
-
-    drawField(toDdMmYyyy(form.contractStartDate), 14, 192.2, 40)
-    drawField(toDdMmYyyy(form.contractEndDate), 55, 192.2, 40)
-   
-    drawField(form.modeOfPayment, 17, 208.2, 46)
-    drawField(formatMoney(form.contractValueAed), 136, 192.2, 58)
-    drawField(formatMoney(form.annualRentAed), 14, 200.2, 58)
-    drawField(formatMoney(form.securityDepositAed), 136, 200.2, 58)
-
-    if (page3) {
-      drawFieldOnPage(page3, page3Height, form.additionalTerm1, 0, 78, 170)
-      drawFieldOnPage(page3, page3Height, form.additionalTerm2, 0, 86, 170)
-      drawFieldOnPage(page3, page3Height, form.additionalTerm3, 0, 96, 170)
-      drawFieldOnPage(page3, page3Height, form.additionalTerm4, 0, 104, 170)
-      drawFieldOnPage(page3, page3Height, form.additionalTerm5, 0, 112, 170)
-    }
-
-    setStatus('Creating PDF export...')
-
-    const output = await pdfDoc.save({ useObjectStreams: false })
-    const outputBytes = Uint8Array.from(output)
-    const outBlob = new Blob([outputBytes], { type: 'application/pdf' })
+    const rgba = await renderEjariPages(template, fields, controller.signal, assertActive)
+    assertActive()
+    setStatus('Packaging filled EJARI PDF...')
+    const outBlob = await exporter.ejariRasterPdf(rgba)
+    if (generation !== exportGeneration) return
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-
-    openBlobInNewTab(outBlob)
-    downloadBlob(outBlob, `ejari-filled-${stamp}.pdf`)
-    setStatus('Done. EJARI PDF preview opened and file downloaded.')
+    const previous = completedPdf.value
+    const result = { url: URL.createObjectURL(outBlob), fileName: `ejari-filled-${stamp}.pdf` }
+    completedPdf.value = result
+    if (previous) URL.revokeObjectURL(previous.url)
+    downloadCompletedPdf(result.url, result.fileName)
+    setStatus('Filled PDF ready. Use the preview or download link below to open this export.')
   } catch (error) {
-    console.error(error)
-    setStatus('EJARI PDF export failed. Please try again.')
+    if (generation !== exportGeneration || error instanceof ProcessingCancelledError) return
+    setStatus(error instanceof Error ? error.message : String(error))
   } finally {
-    generating.value = false
+    if (generation === exportGeneration) {
+      generating.value = false
+      templateAbort = null
+    }
   }
 }
 </script>
@@ -556,9 +439,19 @@ async function generateEjariPdf() {
 
     <div class="mt-6 flex flex-wrap gap-3">
       <button type="button" class="btn-primary" :disabled="generating" @click="generateEjariPdf">
-        {{ generating ? 'Generating PDF...' : 'Preview + Download EJARI PDF' }}
+        {{ generating ? 'Generating PDF...' : 'Generate + Download Filled EJARI PDF' }}
       </button>
-      <p class="self-center text-xs text-slate-500">Template source: public/ejari-template.pdf</p>
+      <button v-if="generating" type="button" class="btn-secondary" @click="cancelExport">Cancel export</button>
+    </div>
+    <p class="mt-2 text-sm text-slate-600">Compatibility export: values are rendered into the three PDF pages. Text in the exported file is not selectable.</p>
+    <div v-if="completedPdf" class="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4" role="status">
+      <p class="font-semibold text-emerald-900">Your filled EJARI PDF</p>
+      <p class="mt-1 break-all text-sm text-emerald-900">{{ completedPdf.fileName }}</p>
+      <div class="mt-3 flex flex-wrap gap-3">
+        <a :href="completedPdf.url" target="_blank" rel="noopener noreferrer" class="btn-secondary">Open filled PDF preview</a>
+        <a :href="completedPdf.url" :download="completedPdf.fileName" class="btn-primary">Download filled PDF</a>
+      </div>
+      <p class="mt-2 text-sm text-emerald-900">This file contains the values captured when you generated it. Generate again after editing the form.</p>
     </div>
   </section>
 </template>

@@ -1,4 +1,11 @@
 <script setup lang="ts">
+import { ProcessingClient, ProcessingCancelledError } from '../utils/processing-client'
+import { retainUndo, validateDimensions, validateRemoval } from '../utils/processing'
+
+const processor = new ProcessingClient(() => new Worker(new URL('../workers/processing.worker.ts', import.meta.url), { type: 'module' }))
+let loadGeneration = 0
+let disposed = false
+const loading = ref(false)
 const status = ref('Ready')
 const processing = ref(false)
 const removeCanvas = ref<HTMLCanvasElement | null>(null)
@@ -10,11 +17,10 @@ const selectionMode = ref<'brush' | 'rect'>('brush')
 let selectStartX = 0
 let selectStartY = 0
 let rectSelection: { x: number; y: number; w: number; h: number } | null = null
-let removeSourceImage: HTMLImageElement | null = null
+let removeSourceImage: HTMLImageElement | HTMLCanvasElement | null = null
 let maskCtx: CanvasRenderingContext2D | null = null
 const hasSelection = ref(false)
 const undoStack = ref<ImageData[]>([])
-const maxUndo = 20
 
 function setStatus(message: string) {
   status.value = message
@@ -32,19 +38,17 @@ function downloadBlob(blob: Blob, fileName: string) {
 }
 
 async function readImage(file: File): Promise<HTMLImageElement> {
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result))
-    reader.onerror = () => reject(new Error('Could not read image file.'))
-    reader.readAsDataURL(file)
-  })
-
-  return await new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new Image()
-    image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error('Could not load image.'))
-    image.src = dataUrl
-  })
+  const url = URL.createObjectURL(file)
+  try {
+    return await new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image()
+      image.onload = () => resolve(image)
+      image.onerror = () => reject(new Error('Could not load image.'))
+      image.src = url
+    })
+  } finally {
+    URL.revokeObjectURL(url)
+  }
 }
 
 async function canvasToBlob(canvas: HTMLCanvasElement, mime: string, quality = 0.92): Promise<Blob> {
@@ -137,29 +141,49 @@ function initMaskCanvas() {
   hasSelection.value = false
 }
 
-function onRemoveFileChange(event: Event) {
+async function onRemoveFileChange(event: Event) {
+  const generation = ++loadGeneration
+  processor.cancel()
   const target = event.target as HTMLInputElement
   const file = target.files?.[0] ?? null
   removePreview.value = ''
+  removeSourceImage = null
   rectSelection = null
+  selecting.value = false
+  hasSelection.value = false
   undoStack.value = []
-
-  if (!file) return
-
-  const reader = new FileReader()
-  reader.onload = async () => {
-    removePreview.value = String(reader.result)
+  maskCanvas.value = null
+  maskCtx = null
+  if (removeCanvas.value) {
+    removeCanvas.value.width = 0
+    removeCanvas.value.height = 0
+  }
+  if (!file) { loading.value = false; setStatus('Ready'); return }
+  loading.value = true
+  setStatus('Loading image…')
+  try {
+    if (file.size > 32 * 1024 * 1024) throw new Error('Choose an image file smaller than 32 MB.')
     const image = await readImage(file)
+    if (disposed || generation !== loadGeneration) return
+    validateDimensions(image.width, image.height)
     removeSourceImage = image
+    removePreview.value = file.name
     await nextTick()
-    if (!removeCanvas.value) return
+    if (!removeCanvas.value || disposed || generation !== loadGeneration) return
     removeCanvas.value.width = image.width
     removeCanvas.value.height = image.height
     initMaskCanvas()
     redrawRemoveCanvas()
     setStatus('Paint or select the area you want to remove.')
+  } catch (error) {
+    if (disposed || generation !== loadGeneration) return
+    removePreview.value = ''
+    removeSourceImage = null
+    setStatus(error instanceof Error ? error.message : 'Could not load image.')
+    target.value = ''
+  } finally {
+    if (generation === loadGeneration) loading.value = false
   }
-  reader.readAsDataURL(file)
 }
 
 function getCanvasPoint(event: PointerEvent) {
@@ -194,33 +218,23 @@ function stampRectToMask(r: { x: number; y: number; w: number; h: number }) {
   maskCtx.fillRect(rect.x, rect.y, rect.w, rect.h)
 }
 
-function pushUndo() {
-  if (!removeCanvas.value || !removeSourceImage) return
-  const c = document.createElement('canvas')
-  c.width = removeCanvas.value.width
-  c.height = removeCanvas.value.height
-  const ctx = c.getContext('2d')
-  if (!ctx) return
-  ctx.drawImage(removeSourceImage, 0, 0)
-  const imgData = ctx.getImageData(0, 0, c.width, c.height)
-  if (undoStack.value.length >= maxUndo) undoStack.value.shift()
-  undoStack.value.push(imgData)
-}
-
 async function undoLast() {
-  if (undoStack.value.length === 0 || !removeCanvas.value) return
-  const imgData = undoStack.value.pop()!
-  const c = document.createElement('canvas')
-  c.width = removeCanvas.value.width
-  c.height = removeCanvas.value.height
-  const ctx = c.getContext('2d')
-  if (!ctx) return
-  ctx.putImageData(imgData, 0, 0)
-  const blob = await canvasToBlob(c, 'image/png', 1)
-  removeSourceImage = await readImage(new File([blob], 'undo.png', { type: 'image/png' }))
-  clearMask()
-  redrawRemoveCanvas()
-  setStatus('Undone. Select more areas or download.')
+  if (processing.value || undoStack.value.length === 0 || !removeCanvas.value) return
+  const imgData = undoStack.value[undoStack.value.length - 1]!
+  try {
+    const source = document.createElement('canvas')
+    source.width = imgData.width
+    source.height = imgData.height
+    const ctx = source.getContext('2d')
+    if (!ctx) throw new Error('Could not restore the image.')
+    ctx.putImageData(imgData, 0, 0)
+    removeSourceImage = source
+    undoStack.value.pop()
+    clearMask()
+    setStatus('Undone. Select more areas or download.')
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : 'Could not undo the last change.')
+  }
 }
 
 function clearMask() {
@@ -271,7 +285,7 @@ function moveSelect(event: PointerEvent) {
 function endSelect(event: PointerEvent) {
   if (!removeCanvas.value) return
   selecting.value = false
-  removeCanvas.value.releasePointerCapture(event.pointerId)
+  if (removeCanvas.value.hasPointerCapture(event.pointerId)) removeCanvas.value.releasePointerCapture(event.pointerId)
 
   if (selectionMode.value === 'rect' && rectSelection) {
     stampRectToMask(rectSelection)
@@ -281,490 +295,78 @@ function endSelect(event: PointerEvent) {
   }
 }
 
-/**
- * Telea-style Fast Marching Method inpainting.
- * Fills the masked region from the boundary inward using weighted
- * pixel extrapolation that preserves edges and surrounding texture.
- */
-function inpaintFMM(
-  data: Uint8ClampedArray,
-  width: number,
-  height: number,
-  maskFlags: Uint8Array,
-  total: number
-) {
-  const KNOWN = 0
-  const BAND = 1
-  const UNKNOWN = 2
-  const dist = new Float32Array(total)
-
-  for (let i = 0; i < total; i++) {
-    if (maskFlags[i] !== KNOWN) dist[i] = 1e6
-  }
-
-  const nd: [number, number][] = [[-1, 0], [1, 0], [0, -1], [0, 1]]
-
-  let band: number[] = []
-  for (let i = 0; i < total; i++) {
-    if (maskFlags[i] !== UNKNOWN) continue
-    const x = i % width
-    const y = (i - x) / width
-    for (const [ddx, ddy] of nd) {
-      const nx = x + ddx
-      const ny = y + ddy
-      if (nx >= 0 && nx < width && ny >= 0 && ny < height && maskFlags[ny * width + nx] === KNOWN) {
-        maskFlags[i] = BAND
-        dist[i] = 1
-        band.push(i)
-        break
-      }
-    }
-  }
-
-  // Adaptive radius — larger for bigger mask regions
-  let minX = width, minY = height, maxX = 0, maxY = 0
-  for (let i = 0; i < total; i++) {
-    if (maskFlags[i] !== KNOWN) {
-      const x = i % width
-      const y = (i - x) / width
-      if (x < minX) minX = x
-      if (x > maxX) maxX = x
-      if (y < minY) minY = y
-      if (y > maxY) maxY = y
-    }
-  }
-  const rw = maxX - minX + 1
-  const rh = maxY - minY + 1
-  const radius = Math.max(6, Math.min(30, Math.ceil(Math.sqrt(rw * rh) * 0.15)))
-
-  const px = (i: number, c: number): number => data[i * 4 + c]!
-
-  while (band.length > 0) {
-    const nextBand: number[] = []
-
-    for (const idx of band) {
-      const cx = idx % width
-      const cy = (idx - cx) / width
-      const curDist = dist[idx]!
-
-      const safeDist = (ni: number): number => {
-        if (ni >= 0 && ni < total && dist[ni]! < 1e5) return dist[ni]!
-        return curDist
-      }
-      const dl = cx > 0 ? safeDist(cy * width + cx - 1) : curDist
-      const dr = cx < width - 1 ? safeDist(cy * width + cx + 1) : curDist
-      const dt = cy > 0 ? safeDist((cy - 1) * width + cx) : curDist
-      const db = cy < height - 1 ? safeDist((cy + 1) * width + cx) : curDist
-      let tgx = (dr - dl) * 0.5
-      let tgy = (db - dt) * 0.5
-      const tgLen = Math.sqrt(tgx * tgx + tgy * tgy) + 1e-6
-      tgx /= tgLen
-      tgy /= tgLen
-
-      let chR = 0
-      let chG = 0
-      let chB = 0
-      let wSum = 0
-
-      for (let dy = -radius; dy <= radius; dy++) {
-        const ny = cy + dy
-        if (ny < 0 || ny >= height) continue
-        for (let dx = -radius; dx <= radius; dx++) {
-          const nx = cx + dx
-          if (nx < 0 || nx >= width) continue
-          const ni = ny * width + nx
-          if (maskFlags[ni] !== KNOWN) continue
-          const d2 = dx * dx + dy * dy
-          if (d2 === 0 || d2 > radius * radius) continue
-          const d = Math.sqrt(d2)
-
-          const dirW = Math.abs(-dx * tgx + -dy * tgy) / d + 0.01
-          const dstW = 1 / (d * d)
-          const levW = 1 / (1 + Math.abs(curDist - dist[ni]!))
-          const w = dirW * dstW * levW
-
-          const lni = ni - 1
-          const rni = ni + 1
-          const tni = ni - width
-          const bni = ni + width
-          const lKnown = nx > 0 && maskFlags[lni] === KNOWN
-          const rKnown = nx < width - 1 && maskFlags[rni] === KNOWN
-          const tKnown = ny > 0 && maskFlags[tni] === KNOWN
-          const bKnown = ny < height - 1 && maskFlags[bni] === KNOWN
-
-          for (let c = 0; c < 3; c++) {
-            const center = px(ni, c)
-            const left = lKnown ? px(lni, c) : center
-            const right = rKnown ? px(rni, c) : center
-            const top = tKnown ? px(tni, c) : center
-            const bottom = bKnown ? px(bni, c) : center
-            const igx = (right - left) * 0.5
-            const igy = (bottom - top) * 0.5
-            let val = center + (-dx * igx + -dy * igy) * 0.5
-            if (val < 0) val = 0
-            if (val > 255) val = 255
-            if (c === 0) chR += w * val
-            else if (c === 1) chG += w * val
-            else chB += w * val
-          }
-          wSum += w
-        }
-      }
-
-      if (wSum > 0) {
-        const pi = idx * 4
-        data[pi] = Math.round(chR / wSum)
-        data[pi + 1] = Math.round(chG / wSum)
-        data[pi + 2] = Math.round(chB / wSum)
-      }
-
-      maskFlags[idx] = KNOWN
-
-      for (const [ddx, ddy] of nd) {
-        const nx = cx + ddx
-        const ny = cy + ddy
-        if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-          const ni = ny * width + nx
-          if (maskFlags[ni] === UNKNOWN) {
-            maskFlags[ni] = BAND
-            dist[ni] = curDist + 1
-            nextBand.push(ni)
-          }
-        }
-      }
-    }
-
-    band = nextBand
-  }
-}
-
-/**
- * Fast block-based texture synthesis with PatchMatch-style propagation.
- * Processes the mask in overlapping blocks, using randomized search +
- * neighbor propagation to find matching texture patches quickly.
- * Runs in async chunks to keep the browser responsive.
- */
-async function patchSynthesis(
-  data: Uint8ClampedArray,
-  origData: Uint8ClampedArray,
-  width: number,
-  height: number,
-  isMasked: Uint8Array
-) {
-  // Mask bounding box
-  let minX = width, minY = height, maxX = 0, maxY = 0
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      if (isMasked[y * width + x]) {
-        if (x < minX) minX = x
-        if (x > maxX) maxX = x
-        if (y < minY) minY = y
-        if (y > maxY) maxY = y
-      }
-    }
-  }
-  const mw = maxX - minX + 1
-  const mh = maxY - minY + 1
-  if (mw < 1 || mh < 1) return
-
-  // Block size adapts to mask, overlap = half block
-  const blockSize = Math.max(5, Math.min(12, Math.ceil(Math.sqrt(mw * mh) * 0.035)))
-  const overlap = Math.max(2, blockSize >> 1)
-  const stepSize = Math.max(1, blockSize - overlap)
-
-  // Search region around mask
-  const searchPad = Math.max(blockSize * 3, Math.ceil(Math.max(mw, mh) * 0.6))
-  const sx0 = Math.max(0, minX - searchPad)
-  const sy0 = Math.max(0, minY - searchPad)
-  const sx1 = Math.min(width - blockSize, maxX + searchPad)
-  const sy1 = Math.min(height - blockSize, maxY + searchPad)
-
-  // Build source block origins (non-masked blocks), coarsely sampled
-  const srcStep = Math.max(2, blockSize >> 1)
-  const srcBlocks: number[] = []
-  for (let y = sy0; y <= sy1; y += srcStep) {
-    for (let x = sx0; x <= sx1; x += srcStep) {
-      // Check block is fully non-masked
-      let clean = true
-      for (let by = 0; by < blockSize && clean; by++) {
-        const ry = y + by
-        if (ry >= height) { clean = false; break }
-        for (let bx = 0; bx < blockSize && clean; bx++) {
-          if (x + bx >= width || isMasked[ry * width + x + bx]) clean = false
-        }
-      }
-      if (clean) srcBlocks.push(y * width + x)
-    }
-  }
-  if (srcBlocks.length === 0) return
-
-  // Cap source blocks for speed
-  const maxSrc = 800
-  let activeSrc = srcBlocks
-  if (activeSrc.length > maxSrc) {
-    const sampled = activeSrc.slice(0, maxSrc)
-    for (let i = maxSrc; i < activeSrc.length; i++) {
-      const j = Math.floor(Math.random() * (i + 1))
-      if (j < maxSrc) sampled[j] = activeSrc[i]!
-    }
-    activeSrc = sampled
-  }
-
-  // SSD between a target block at (tx,ty) and source block at origin si
-  function blockSSD(tx: number, ty: number, si: number): number {
-    const sox = si % width
-    const soy = (si - sox) / width
-    let ssd = 0
-    for (let by = 0; by < blockSize; by += 2) {
-      const ry = ty + by
-      const sry = soy + by
-      if (ry >= height || sry >= height) { ssd += blockSize * 300; continue }
-      for (let bx = 0; bx < blockSize; bx += 2) {
-        const rx = tx + bx
-        const srx = sox + bx
-        if (rx >= width || srx >= width) { ssd += 300; continue }
-        const ti = (ry * width + rx) * 4
-        const sii = (sry * width + srx) * 4
-        // Weight known pixels more heavily in the match
-        const w = isMasked[ry * width + rx] ? 0.3 : 1.0
-        const dr = data[ti]! - origData[sii]!
-        const dg = data[ti + 1]! - origData[sii + 1]!
-        const db = data[ti + 2]! - origData[sii + 2]!
-        ssd += (dr * dr + dg * dg + db * db) * w
-      }
-    }
-    return ssd
-  }
-
-  // Build grid of target blocks covering the masked area
-  const targetBlocks: { x: number; y: number }[] = []
-  for (let y = Math.max(0, minY - overlap); y <= Math.min(height - blockSize, maxY); y += stepSize) {
-    for (let x = Math.max(0, minX - overlap); x <= Math.min(width - blockSize, maxX); x += stepSize) {
-      // Only include blocks that overlap with the mask
-      let hasMasked = false
-      for (let by = 0; by < blockSize && !hasMasked; by++) {
-        for (let bx = 0; bx < blockSize && !hasMasked; bx++) {
-          if (y + by < height && x + bx < width && isMasked[(y + by) * width + x + bx]) {
-            hasMasked = true
-          }
-        }
-      }
-      if (hasMasked) targetBlocks.push({ x, y })
-    }
-  }
-  if (targetBlocks.length === 0) return
-
-  // NNF (nearest neighbor field): best source index for each target block
-  const nnf = new Int32Array(targetBlocks.length)
-  const nnfDist = new Float32Array(targetBlocks.length)
-
-  // Initialize: random assignment
-  for (let i = 0; i < targetBlocks.length; i++) {
-    const ri = Math.floor(Math.random() * activeSrc.length)
-    nnf[i] = activeSrc[ri]!
-    nnfDist[i] = blockSSD(targetBlocks[i]!.x, targetBlocks[i]!.y, activeSrc[ri]!)
-  }
-
-  // PatchMatch iterations: propagate + random search
-  const pmIterations = 3
-  const randomTrials = 6
-
-  for (let iter = 0; iter < pmIterations; iter++) {
-    // Alternate scan direction
-    const forward = iter % 2 === 0
-    const start = forward ? 0 : targetBlocks.length - 1
-    const end = forward ? targetBlocks.length : -1
-    const step2 = forward ? 1 : -1
-
-    for (let i = start; i !== end; i += step2) {
-      const tb = targetBlocks[i]!
-
-      // Propagation: check neighbors' matches (shifted by step)
-      const neighbors = forward ? [i - 1, i - Math.ceil(mw / stepSize)] : [i + 1, i + Math.ceil(mw / stepSize)]
-      for (const ni of neighbors) {
-        if (ni < 0 || ni >= targetBlocks.length) continue
-        const nSrc = nnf[ni]!
-        const nsx = nSrc % width
-        const nsy = (nSrc - nsx) / width
-        // Shift source by the target offset difference
-        const ntb = targetBlocks[ni]!
-        const shiftedX = nsx + (tb.x - ntb.x)
-        const shiftedY = nsy + (tb.y - ntb.y)
-        if (shiftedX < 0 || shiftedX + blockSize > width || shiftedY < 0 || shiftedY + blockSize > height) continue
-        const shiftedIdx = shiftedY * width + shiftedX
-        const d = blockSSD(tb.x, tb.y, shiftedIdx)
-        if (d < nnfDist[i]!) {
-          nnf[i] = shiftedIdx
-          nnfDist[i] = d
-        }
-      }
-
-      // Random search: decreasing radius
-      let searchRadius = Math.max(sx1 - sx0, sy1 - sy0)
-      const curSrc = nnf[i]!
-      const csx = curSrc % width
-      const csy = (curSrc - csx) / width
-      for (let t = 0; t < randomTrials && searchRadius >= 1; t++) {
-        const rx = csx + Math.round((Math.random() * 2 - 1) * searchRadius)
-        const ry = csy + Math.round((Math.random() * 2 - 1) * searchRadius)
-        if (rx >= sx0 && rx + blockSize <= width && ry >= sy0 && ry + blockSize <= height) {
-          const ri = ry * width + rx
-          const d = blockSSD(tb.x, tb.y, ri)
-          if (d < nnfDist[i]!) {
-            nnf[i] = ri
-            nnfDist[i] = d
-          }
-        }
-        searchRadius = Math.floor(searchRadius * 0.5)
-      }
-    }
-
-    // Yield to browser between iterations
-    await new Promise<void>((r) => setTimeout(r, 0))
-  }
-
-  // Voting: accumulate source contributions with overlap blending
-  const accR = new Float32Array(width * height)
-  const accG = new Float32Array(width * height)
-  const accB = new Float32Array(width * height)
-  const accW = new Float32Array(width * height)
-
-  for (let i = 0; i < targetBlocks.length; i++) {
-    const tb = targetBlocks[i]!
-    const src = nnf[i]!
-    const sox = src % width
-    const soy = (src - sox) / width
-
-    for (let by = 0; by < blockSize; by++) {
-      const ty = tb.y + by
-      const sy = soy + by
-      if (ty >= height || sy >= height) continue
-      for (let bx = 0; bx < blockSize; bx++) {
-        const tx = tb.x + bx
-        const sx2 = sox + bx
-        if (tx >= width || sx2 >= width) continue
-        const ti = ty * width + tx
-        if (!isMasked[ti]) continue // only fill masked pixels
-
-        // Feather weight: stronger in the center of the block
-        const edgeX = Math.min(bx, blockSize - 1 - bx)
-        const edgeY = Math.min(by, blockSize - 1 - by)
-        const feather = (edgeX + 1) * (edgeY + 1)
-
-        const si = (sy * width + sx2) * 4
-        const srcR = origData[si]!
-        const srcG = origData[si + 1]!
-        const srcB = origData[si + 2]!
-        accR[ti] = accR[ti]! + srcR * feather
-        accG[ti] = accG[ti]! + srcG * feather
-        accB[ti] = accB[ti]! + srcB * feather
-        accW[ti] = accW[ti]! + feather
-      }
-    }
-  }
-
-  // Write averaged results, blending with FMM base fill
-  for (let i = 0; i < width * height; i++) {
-    if (!isMasked[i] || accW[i]! < 0.01) continue
-    const pi = i * 4
-    const patchR = accR[i]! / accW[i]!
-    const patchG = accG[i]! / accW[i]!
-    const patchB = accB[i]! / accW[i]!
-
-    // Blend 70% patch texture + 30% FMM base for smooth boundary transitions
-    data[pi] = Math.round(patchR * 0.7 + data[pi]! * 0.3)
-    data[pi + 1] = Math.round(patchG * 0.7 + data[pi + 1]! * 0.3)
-    data[pi + 2] = Math.round(patchB * 0.7 + data[pi + 2]! * 0.3)
-  }
-}
-
 async function applyWatermarkRemoval() {
-  if (!removeCanvas.value || !maskCanvas.value || !maskCtx) {
-    setStatus('Select an area before removing.')
-    return
-  }
-
-  // Check mask has content
-  const maskData = maskCtx.getImageData(0, 0, maskCanvas.value.width, maskCanvas.value.height)
-  let hasMask = false
-  for (let i = 3; i < maskData.data.length; i += 4) {
-    if (maskData.data[i]! > 0) { hasMask = true; break }
-  }
-  if (!hasMask) {
-    setStatus('Paint or select the area you want to remove first.')
-    return
-  }
-
+  if (processing.value || loading.value || !removeCanvas.value || !maskCanvas.value || !maskCtx || !removeSourceImage) return
   processing.value = true
-  setStatus('Phase 1: Base fill\u2026')
-  await nextTick()
-
-  pushUndo()
-
-  const w = removeCanvas.value.width
-  const h = removeCanvas.value.height
-  const context = removeCanvas.value.getContext('2d')
-  if (!context) { processing.value = false; return }
-
-  // Draw clean source image (without overlay) for processing
-  context.clearRect(0, 0, w, h)
-  if (removeSourceImage) context.drawImage(removeSourceImage, 0, 0)
-  const imageData = context.getImageData(0, 0, w, h)
-
-  // Run FMM base fill
-  const total = w * h
-  const isMasked = new Uint8Array(total)
-  const flags = new Uint8Array(total)
-  let unknownCount = 0
-  for (let i = 0; i < total; i++) {
-    if (maskData.data[i * 4 + 3]! > 0) {
-      isMasked[i] = 1
-      flags[i] = 2
-      unknownCount++
-    }
-  }
-
-  if (unknownCount === 0) {
+  selecting.value = false
+  try {
+    const canvas = removeCanvas.value
+    const { width, height } = canvas
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('Could not read the image.')
+    const maskData = maskCtx.getImageData(0, 0, width, height)
+    const mask = new Uint8Array(width * height)
+    for (let i = 0; i < mask.length; i++) mask[i] = maskData.data[i * 4 + 3]! > 0 ? 1 : 0
+    context.clearRect(0, 0, width, height)
+    context.drawImage(removeSourceImage, 0, 0)
+    const before = context.getImageData(0, 0, width, height)
+    validateRemoval(new Uint8Array(before.data.buffer), mask, width, height)
+    setStatus('Preparing image…')
+    // Keep the original snapshot owned by the UI for undo/cancel. Only the
+    // processing copy and compact one-byte mask are transferred to the worker.
+    const rgba = before.data.slice().buffer as ArrayBuffer
+    const result = await processor.run({ width, height, rgba, mask: mask.buffer, seed: 0x9e3779b9 }, (phase) => setStatus(phase + '…'))
+    if (disposed) return
+    const source = document.createElement('canvas')
+    source.width = width
+    source.height = height
+    const sourceContext = source.getContext('2d')
+    if (!sourceContext) throw new Error('Could not display the processed image.')
+    sourceContext.putImageData(new ImageData(new Uint8ClampedArray(result), width, height), 0, 0)
+    retainUndo(undoStack.value, before)
+    removeSourceImage = source
+    clearMask()
+    setStatus('Area reconstructed. Select more areas or download.')
+  } catch (error) {
+    if (disposed) return
+    redrawRemoveCanvas()
+    setStatus(error instanceof ProcessingCancelledError
+      ? 'Processing cancelled. Your image and selection are unchanged.'
+      : error instanceof Error ? error.message : 'Removal failed. Try a smaller selection.')
+  } finally {
     processing.value = false
-    setStatus('No area selected.')
-    return
   }
-
-  const origData = new Uint8ClampedArray(imageData.data.length)
-  origData.set(imageData.data)
-
-  await new Promise<void>((resolve) => {
-    setTimeout(() => {
-      inpaintFMM(imageData.data, w, h, flags, total)
-      resolve()
-    }, 50)
-  })
-
-  // Phase 2: Patch synthesis
-  setStatus('Phase 2: Texture synthesis\u2026')
-  await nextTick()
-
-  await patchSynthesis(imageData.data, origData, w, h, isMasked)
-
-  context.putImageData(imageData, 0, 0)
-
-  if (removeSourceImage) {
-    removeSourceImage = await readImage(
-      new File([await canvasToBlob(removeCanvas.value, 'image/png', 1)], 'updated.png', { type: 'image/png' })
-    )
-  }
-
-  clearMask()
-  redrawRemoveCanvas()
-  processing.value = false
-  setStatus('Watermark removed. Select more areas or download.')
 }
+
+function cancelRemoval() {
+  processor.cancel()
+}
+
+onBeforeUnmount(() => {
+  disposed = true
+  loadGeneration++
+  processor.cancel()
+  undoStack.value = []
+  removeSourceImage = null
+  maskCanvas.value = null
+  maskCtx = null
+})
 
 async function downloadRemovedResult() {
-  if (!removeCanvas.value) return
-  const blob = await canvasToBlob(removeCanvas.value, 'image/png', 1)
-  downloadBlob(blob, 'watermark-removed.png')
-  setStatus('Processed image downloaded.')
+  if (!removeCanvas.value || !removeSourceImage || processing.value) return
+  try {
+    const output = document.createElement('canvas')
+    output.width = removeCanvas.value.width
+    output.height = removeCanvas.value.height
+    const context = output.getContext('2d')
+    if (!context) throw new Error('Could not export the image.')
+    // Export the clean source, never the red selection overlay.
+    context.drawImage(removeSourceImage, 0, 0)
+    downloadBlob(await canvasToBlob(output, 'image/png', 1), 'watermark-removed.png')
+    setStatus('Processed image downloaded.')
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : 'Could not download the image.')
+  }
 }
 </script>
 
@@ -777,20 +379,20 @@ async function downloadRemovedResult() {
 
     <!-- Status + Processing Indicator -->
     <div class="mt-3 flex items-center gap-3">
-      <p class="status-pill">{{ status }}</p>
+      <p class="status-pill" role="status" aria-live="polite">{{ status }}</p>
       <div v-if="processing" class="flex items-center gap-2 rounded-full bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-800">
         <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
         </svg>
-        Processing\u2026
+        Processing…
       </div>
     </div>
 
     <!-- File Input -->
     <label class="mt-5 block rounded-2xl bg-white/70 p-4 text-sm font-semibold">
       Target Image
-      <input type="file" accept="image/*" class="field-control mt-2" :disabled="processing" @change="onRemoveFileChange">
+      <input type="file" accept="image/*" class="field-control mt-2" :disabled="processing || loading" @change="onRemoveFileChange">
     </label>
 
     <!-- Toolbar -->
@@ -861,6 +463,7 @@ async function downloadRemovedResult() {
           </svg>
           <p class="mt-3 text-sm font-bold text-slate-700">{{ status }}</p>
           <p class="mt-1 text-xs text-slate-500">Base fill &rarr; Texture synthesis &rarr; Done</p>
+          <button type="button" class="btn-secondary mt-4" @click="cancelRemoval">Cancel processing</button>
         </div>
       </Transition>
 
@@ -882,7 +485,7 @@ async function downloadRemovedResult() {
           <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159M15.75 12.75l1.409-1.409a2.25 2.25 0 013.182 0l1.409 1.409M6 20.25h12A2.25 2.25 0 0020.25 18V6A2.25 2.25 0 0018 3.75H6A2.25 2.25 0 003.75 6v12A2.25 2.25 0 006 20.25zM9.75 9.75a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
         </svg>
         <p class="text-sm font-semibold">Upload an image to begin</p>
-        <p class="mt-1 text-xs">Supports PNG, JPG, WebP and more</p>
+        <p class="mt-1 text-xs">PNG, JPG, WebP · Up to 12 megapixels and 32 MB</p>
       </div>
     </div>
 
@@ -894,7 +497,7 @@ async function downloadRemovedResult() {
         @click="applyWatermarkRemoval"
       >
         <span v-if="processing" class="mr-1.5 inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-        {{ processing ? 'Processing\u2026' : 'Remove Selection' }}
+        {{ processing ? 'Processing…' : 'Remove Selection' }}
       </button>
       <button class="btn-secondary" :disabled="processing" @click="downloadRemovedResult">
         Download Result

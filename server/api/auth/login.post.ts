@@ -1,17 +1,11 @@
 import { createSession, loginUser } from '../../utils/auth-db'
-
-type LoginBody = {
-  email?: string
-  password?: string
-}
+import { enforceAuthRateLimit } from '../../utils/auth-rate-limit'
+import { readAuthJson } from '../../utils/auth-body'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<LoginBody>(event)
-
-  const user = await loginUser({
-    email: body.email || '',
-    password: body.password || ''
-  })
+  enforceAuthRateLimit(event,'login')
+  const body = await readAuthJson(event)
+  const user = await loginUser(body)
 
   await createSession(event, user.id)
   return user

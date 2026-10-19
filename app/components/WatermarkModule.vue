@@ -1,266 +1,226 @@
 <script setup lang="ts">
 import JSZip from 'jszip'
+import { ProcessingClient, ProcessingCancelledError } from '../utils/processing-client'
+import { validateDimensions } from '../utils/processing'
+import { createWatermarkStamp } from '../utils/watermark'
+import type { WatermarkOptions, WatermarkPosition } from '../utils/watermark'
 
 const status = ref('Ready')
 const wmBaseFiles = ref<File[]>([])
+const dimensions = ref<Array<{ width: number; height: number }>>([])
 const wmThumbnails = ref<string[]>([])
 const wmSelectedIndex = ref(0)
-const wmPreviewImage = ref<HTMLImageElement | null>(null)
+const wmPreviewImage = shallowRef<HTMLImageElement | null>(null)
 const wmType = ref<'text' | 'image'>('text')
 const wmText = ref('CONFIDENTIAL')
 const wmColor = ref('#ffffff')
 const wmSize = ref(40)
 const wmOpacity = ref(0.35)
-const wmPosition = ref<'top-left' | 'top-right' | 'center' | 'bottom-left' | 'bottom-right'>('center')
+const wmPosition = ref<WatermarkPosition>('center')
 const wmImageFile = ref<File | null>(null)
 const wmImagePreview = ref('')
 const wmImageScale = ref(0.25)
 const previewCanvas = ref<HTMLCanvasElement | null>(null)
-const wmWatermarkImage = ref<HTMLImageElement | null>(null)
+const wmWatermarkImage = shallowRef<HTMLImageElement | null>(null)
+const busy = ref(false)
+const loading = ref(false)
+const exportMode = ref<'background' | 'standard'>('standard')
+const processor = new ProcessingClient(() => new Worker(new URL('../workers/processing.worker.ts', import.meta.url), { type: 'module' }))
+let disposed = false, cancelled = false, baseGeneration = 0, markGeneration = 0, previewGeneration = 0
+let frame = 0
+let observer: ResizeObserver | null = null
 
-function setStatus(message: string) {
-  status.value = message
+function options(): WatermarkOptions { return { type: wmType.value, text: wmText.value, color: wmColor.value, size: wmSize.value, opacity: wmOpacity.value, position: wmPosition.value, scale: wmImageScale.value } }
+function setStatus(message: string) { status.value = message }
+function revokeThumbnails() { wmThumbnails.value.forEach((url) => URL.revokeObjectURL(url)); wmThumbnails.value = [] }
+async function readImage(file: File): Promise<HTMLImageElement> {
+  if (file.size > 32 * 1024 * 1024) throw new Error('Choose image files smaller than 32 MB.')
+  const url = URL.createObjectURL(file)
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image()
+      image.onload = () => resolve(image)
+      image.onerror = () => reject(new Error('Could not load ' + file.name + '.'))
+      image.src = url
+    })
+    validateDimensions(image.width, image.height)
+    return image
+  } finally { URL.revokeObjectURL(url) }
 }
-
-function downloadBlob(blob: Blob, fileName: string) {
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = fileName
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
+async function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return await new Promise((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('Could not export the watermarked image.')), 'image/png'))
+}
+function downloadBlob(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob), anchor = document.createElement('a')
+  anchor.href = url; anchor.download = name
+  document.body.appendChild(anchor); anchor.click(); anchor.remove()
   URL.revokeObjectURL(url)
 }
-
-async function readImage(file: File): Promise<HTMLImageElement> {
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result))
-    reader.onerror = () => reject(new Error('Could not read image file.'))
-    reader.readAsDataURL(file)
-  })
-
-  return await new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new Image()
-    image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error('Could not load image.'))
-    image.src = dataUrl
-  })
-}
-
-async function canvasToBlob(canvas: HTMLCanvasElement, mime: string, quality = 0.92): Promise<Blob> {
-  return await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        reject(new Error('Could not create image blob.'))
-        return
-      }
-      resolve(blob)
-    }, mime, quality)
-  })
-}
-
 async function onBaseWatermarkImageChange(event: Event) {
+  if (busy.value) return
+  const generation = ++baseGeneration
+  ++previewGeneration
   const target = event.target as HTMLInputElement
-  const files = target.files
-  if (!files || files.length === 0) {
-    wmBaseFiles.value = []
-    wmThumbnails.value = []
-    wmSelectedIndex.value = 0
-    wmPreviewImage.value = null
-    return
-  }
-  wmBaseFiles.value = Array.from(files)
-  wmThumbnails.value = await Promise.all(
-    wmBaseFiles.value.map((file) =>
-      new Promise<string>((resolve) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(String(reader.result))
-        reader.readAsDataURL(file)
-      })
-    )
-  )
-  wmSelectedIndex.value = 0
-  wmPreviewImage.value = await readImage(wmBaseFiles.value[0]!)
-  drawPreview()
-}
-
-async function selectPreviewImage(index: number) {
-  wmSelectedIndex.value = index
-  wmPreviewImage.value = await readImage(wmBaseFiles.value[index]!)
-  drawPreview()
-}
-
-function onWatermarkImageChange(event: Event) {
-  const target = event.target as HTMLInputElement
-  wmImageFile.value = target.files?.[0] ?? null
-  wmImagePreview.value = ''
-  wmWatermarkImage.value = null
-  if (!wmImageFile.value) {
-    drawPreview()
-    return
-  }
-  const reader = new FileReader()
-  reader.onload = async () => {
-    wmImagePreview.value = String(reader.result)
-    if (wmImageFile.value) {
-      wmWatermarkImage.value = await readImage(wmImageFile.value)
-      drawPreview()
-    }
-  }
-  reader.readAsDataURL(wmImageFile.value)
-}
-
-function getWatermarkPosition(
-  position: 'top-left' | 'top-right' | 'center' | 'bottom-left' | 'bottom-right',
-  baseWidth: number,
-  baseHeight: number,
-  markWidth: number,
-  markHeight: number,
-  padding = 24
-) {
-  if (position === 'top-left') {
-    return { x: padding, y: padding }
-  }
-  if (position === 'top-right') {
-    return { x: baseWidth - markWidth - padding, y: padding }
-  }
-  if (position === 'bottom-left') {
-    return { x: padding, y: baseHeight - markHeight - padding }
-  }
-  if (position === 'bottom-right') {
-    return { x: baseWidth - markWidth - padding, y: baseHeight - markHeight - padding }
-  }
-  return { x: (baseWidth - markWidth) / 2, y: (baseHeight - markHeight) / 2 }
-}
-
-function drawPreview() {
-  const canvas = previewCanvas.value
-  const baseImg = wmPreviewImage.value
-  if (!canvas || !baseImg) return
-
-  const maxW = canvas.clientWidth * (window.devicePixelRatio || 1)
-  const scale = Math.min(maxW / baseImg.width, 1)
-  canvas.width = baseImg.width * scale
-  canvas.height = baseImg.height * scale
-
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-
-  ctx.clearRect(0, 0, canvas.width, canvas.height)
-  ctx.drawImage(baseImg, 0, 0, canvas.width, canvas.height)
-  ctx.globalAlpha = wmOpacity.value
-
-  if (wmType.value === 'text') {
-    const fontSize = wmSize.value * scale
-    ctx.fillStyle = wmColor.value
-    ctx.font = `700 ${fontSize}px "Space Grotesk", sans-serif`
-    const metrics = ctx.measureText(wmText.value)
-    const markW = metrics.width
-    const markH = fontSize
-    const padding = 24 * scale
-    const pt = getWatermarkPosition(wmPosition.value, canvas.width, canvas.height, markW, markH, padding)
-    ctx.fillText(wmText.value, pt.x, pt.y + markH)
-  } else if (wmWatermarkImage.value) {
-    const markW = canvas.width * wmImageScale.value
-    const markH = (wmWatermarkImage.value.height / wmWatermarkImage.value.width) * markW
-    const padding = 24 * scale
-    const pt = getWatermarkPosition(wmPosition.value, canvas.width, canvas.height, markW, markH, padding)
-    ctx.drawImage(wmWatermarkImage.value, pt.x, pt.y, markW, markH)
-  }
-
-  ctx.globalAlpha = 1
-}
-
-watch(
-  [wmType, wmText, wmColor, wmSize, wmOpacity, wmPosition, wmImageScale, wmPreviewImage, wmWatermarkImage],
-  () => drawPreview(),
-  { flush: 'post' }
-)
-
-function applyWatermark(
-  baseImage: HTMLImageElement,
-  watermarkImage: HTMLImageElement | null,
-): HTMLCanvasElement {
-  const canvas = document.createElement('canvas')
-  canvas.width = baseImage.width
-  canvas.height = baseImage.height
-  const ctx = canvas.getContext('2d')!
-  ctx.drawImage(baseImage, 0, 0)
-  ctx.globalAlpha = wmOpacity.value
-
-  if (wmType.value === 'text') {
-    ctx.fillStyle = wmColor.value
-    ctx.font = `700 ${wmSize.value}px "Space Grotesk", sans-serif`
-    const metrics = ctx.measureText(wmText.value)
-    const markW = metrics.width
-    const markH = wmSize.value
-    const pt = getWatermarkPosition(wmPosition.value, canvas.width, canvas.height, markW, markH)
-    ctx.fillText(wmText.value, pt.x, pt.y + markH)
-  } else if (watermarkImage) {
-    const markW = canvas.width * wmImageScale.value
-    const markH = (watermarkImage.height / watermarkImage.width) * markW
-    const pt = getWatermarkPosition(wmPosition.value, canvas.width, canvas.height, markW, markH)
-    ctx.drawImage(watermarkImage, pt.x, pt.y, markW, markH)
-  }
-
-  ctx.globalAlpha = 1
-  return canvas
-}
-
-async function addWatermark() {
-  if (wmBaseFiles.value.length === 0) {
-    setStatus('Select at least one base image.')
-    return
-  }
-
-  if (wmType.value === 'image' && !wmImageFile.value) {
-    setStatus('Select watermark image before applying.')
-    return
-  }
-
+  const files = Array.from(target.files || [])
+  const urls: string[] = [], sizes: Array<{ width: number; height: number }> = []
+  let published = false
+  loading.value = true
+  revokeThumbnails()
+  wmBaseFiles.value = []; dimensions.value = []; wmPreviewImage.value = null
   try {
-    const watermarkImage = wmType.value === 'image' && wmImageFile.value
-      ? await readImage(wmImageFile.value)
-      : null
-
-    const total = wmBaseFiles.value.length
-    const zip = new JSZip()
-
-    for (let i = 0; i < total; i++) {
-      setStatus(`Processing ${i + 1} of ${total}...`)
-      const file = wmBaseFiles.value[i]!
-      const baseImage = await readImage(file)
-      const canvas = applyWatermark(baseImage, watermarkImage)
-      const outputBlob = await canvasToBlob(canvas, 'image/png', 1)
-      const baseName = file.name.replace(/\.[^.]+$/, '')
-      zip.file(`${baseName}_watermarked.png`, outputBlob)
+    if (files.length > 32 || files.reduce((sum, file) => sum + file.size, 0) > 128 * 1024 * 1024) throw new Error('Select up to 32 images and 128 MB per batch.')
+    let first: HTMLImageElement | null = null
+    for (const file of files) {
+      const image = await readImage(file)
+      if (disposed || generation !== baseGeneration) return
+      first ??= image
+      sizes.push({ width: image.width, height: image.height })
+      urls.push(URL.createObjectURL(file))
     }
-
-    setStatus('Creating ZIP...')
-    const zipBlob = await zip.generateAsync({ type: 'blob' })
-    downloadBlob(zipBlob, 'watermarked_images.zip')
-    setStatus(`Done — ${total} image${total > 1 ? 's' : ''} watermarked.`)
+    wmBaseFiles.value = files; dimensions.value = sizes
+    wmThumbnails.value = urls; published = true
+    wmSelectedIndex.value = 0; wmPreviewImage.value = first
+    setStatus(files.length ? 'Ready. Adjust your watermark and export.' : 'Ready')
+    schedulePreview()
   } catch (error) {
-    console.error(error)
-    setStatus('Watermark process failed.')
+    if (!disposed && generation === baseGeneration) { setStatus(error instanceof Error ? error.message : 'Could not load images.'); target.value = '' }
+  } finally {
+    if (!published) urls.forEach((url) => URL.revokeObjectURL(url))
+    if (generation === baseGeneration) loading.value = false
   }
 }
+async function selectPreviewImage(index: number) {
+  if (busy.value || loading.value) return
+  const file = wmBaseFiles.value[index]
+  if (!file) return
+  const generation = ++previewGeneration
+  try {
+    const image = await readImage(file)
+    if (disposed || generation !== previewGeneration) return
+    wmSelectedIndex.value = index; wmPreviewImage.value = image
+    schedulePreview()
+  } catch (error) { if (!disposed) setStatus(error instanceof Error ? error.message : 'Could not load preview.') }
+}
+async function onWatermarkImageChange(event: Event) {
+  if (busy.value) return
+  const generation = ++markGeneration
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0] ?? null
+  wmImageFile.value = null; wmWatermarkImage.value = null
+  if (wmImagePreview.value) URL.revokeObjectURL(wmImagePreview.value)
+  wmImagePreview.value = ''
+  try {
+    if (!file) return
+    const image = await readImage(file)
+    if (disposed || generation !== markGeneration) return
+    wmWatermarkImage.value = image; wmImageFile.value = file
+    wmImagePreview.value = URL.createObjectURL(file)
+  } catch (error) { if (!disposed) { setStatus(error instanceof Error ? error.message : 'Could not load watermark.'); target.value = '' } }
+  finally { schedulePreview() }
+}
+function schedulePreview() {
+  if (disposed || typeof requestAnimationFrame === 'undefined') return
+  cancelAnimationFrame(frame)
+  frame = requestAnimationFrame(drawPreview)
+}
+function drawPreview() {
+  const canvas = previewCanvas.value, base = wmPreviewImage.value
+  if (!canvas || !base) return
+  const scale = Math.min((canvas.clientWidth || 600) * (window.devicePixelRatio || 1) / base.width, 1)
+  canvas.width = Math.max(1, Math.round(base.width * scale)); canvas.height = Math.max(1, Math.round(base.height * scale))
+  const context = canvas.getContext('2d')
+  if (!context) return
+  context.drawImage(base, 0, 0, canvas.width, canvas.height)
+  let stamp: ReturnType<typeof createWatermarkStamp> | null = null
+  try {
+    stamp = createWatermarkStamp(base.width, base.height, options(), wmWatermarkImage.value, scale)
+    context.globalAlpha = stamp.opacity
+    context.drawImage(stamp.canvas, stamp.x * scale, stamp.y * scale)
+  } catch { /* Incomplete settings leave the clean base preview visible. */ }
+  finally { context.globalAlpha = 1; if (stamp) stamp.canvas.width = stamp.canvas.height = 0 }
+}
+watch([wmType, wmText, wmColor, wmSize, wmOpacity, wmPosition, wmImageScale, wmPreviewImage, wmWatermarkImage], schedulePreview, { flush: 'post' })
+onMounted(() => {
+  if (typeof OffscreenCanvas !== 'undefined' && typeof createImageBitmap !== 'undefined') exportMode.value = 'background'
+  if (previewCanvas.value) { observer = new ResizeObserver(schedulePreview); observer.observe(previewCanvas.value) }
+  void document.fonts.ready.then(schedulePreview)
+})
+function assertActive() { if (disposed || cancelled) throw new ProcessingCancelledError() }
+function cancelExport() { cancelled = true; processor.cancel(); setStatus('Cancelling…') }
+async function addWatermark() {
+  if (busy.value || loading.value) return
+  if (!wmBaseFiles.value.length) { setStatus('Select at least one base image.'); return }
+  const settings = options(), mode = exportMode.value, markImage = wmWatermarkImage.value
+  busy.value = true; cancelled = false
+  try {
+    await document.fonts.ready
+    assertActive()
+    const zip = new JSZip(), names = new Set<string>()
+    let bytes = 0
+    for (const [index, file] of wmBaseFiles.value.entries()) {
+      assertActive()
+      setStatus('Processing ' + (index + 1) + ' of ' + wmBaseFiles.value.length + '…')
+      const { width, height } = dimensions.value[index]!
+      const stamp = createWatermarkStamp(width, height, settings, markImage)
+      let blob: Blob
+      try {
+        if (mode === 'background') {
+          const context = stamp.canvas.getContext('2d')!
+          const mark = context.getImageData(0, 0, stamp.canvas.width, stamp.canvas.height).data.buffer as ArrayBuffer
+          blob = await processor.exportWatermark({ file, width, height, mark, markWidth: stamp.canvas.width, markHeight: stamp.canvas.height, x: stamp.x, y: stamp.y, opacity: stamp.opacity })
+        } else {
+          const image = await readImage(file)
+          assertActive()
+          const canvas = document.createElement('canvas')
+          canvas.width = width; canvas.height = height
+          try {
+            const context = canvas.getContext('2d')
+            if (!context) throw new Error('Could not create the export canvas.')
+            context.drawImage(image, 0, 0)
+            context.globalAlpha = stamp.opacity
+            context.drawImage(stamp.canvas, stamp.x, stamp.y)
+            blob = await canvasToBlob(canvas)
+          } finally { canvas.width = canvas.height = 0 }
+        }
+      } finally { stamp.canvas.width = stamp.canvas.height = 0 }
+      assertActive()
+      bytes += blob.size
+      if (bytes > 128 * 1024 * 1024) throw new Error('Outputs exceed 128 MB. Export fewer images at a time.')
+      const base = file.name.replace(/\.[^.]+$/, '') + '_watermarked'
+      let name = base + '.png', suffix = 2
+      while (names.has(name)) name = base + '_' + suffix++ + '.png'
+      names.add(name); zip.file(name, blob)
+    }
+    setStatus('Creating ZIP…')
+    const blob = await zip.generateAsync({ type: 'blob' }, assertActive)
+    assertActive()
+    downloadBlob(blob, 'watermarked_images.zip')
+    setStatus('Done. Watermarked ' + wmBaseFiles.value.length + ' image(s).')
+  } catch (error) {
+    if (!disposed) setStatus(error instanceof ProcessingCancelledError ? 'Export cancelled. No files were downloaded.' : error instanceof Error ? error.message : 'Watermark export failed.')
+  } finally { busy.value = false }
+}
+onBeforeUnmount(() => {
+  disposed = true; cancelled = true; baseGeneration++; markGeneration++; previewGeneration++
+  processor.cancel(); cancelAnimationFrame(frame); observer?.disconnect(); revokeThumbnails()
+  if (wmImagePreview.value) URL.revokeObjectURL(wmImagePreview.value)
+  wmPreviewImage.value = null; wmWatermarkImage.value = null
+})
 </script>
 
 <template>
   <section class="module-surface">
     <h2 class="module-title text-2xl font-bold">Add Watermark</h2>
     <p class="mt-2 text-sm text-slate-600">Use text or image watermarks with custom style and position. Supports batch processing.</p>
-    <p class="status-pill mt-3">{{ status }}</p>
+    <p class="mt-1 text-xs text-slate-500">Up to 32 images, 12 megapixels and 32 MB each; 128 MB per batch.</p>
+    <p class="status-pill mt-3" role="status" aria-live="polite">{{ status }}</p>
 
     <div class="mt-5 grid gap-4 lg:grid-cols-2">
       <div class="space-y-3 rounded-2xl bg-white/70 p-4">
         <label class="block text-sm font-semibold">
           Images
           <span v-if="wmBaseFiles.length > 0" class="ml-1 font-normal text-slate-500">({{ wmBaseFiles.length }} selected)</span>
-          <input type="file" accept="image/*" multiple class="field-control mt-2" @change="onBaseWatermarkImageChange" >
+          <input type="file" accept="image/*" multiple :disabled="busy || loading" class="field-control mt-2" @change="onBaseWatermarkImageChange" >
         </label>
         <div class="min-h-56 rounded-xl border border-slate-300 bg-white p-3 flex items-center justify-center">
           <canvas v-show="wmPreviewImage" ref="previewCanvas" class="max-h-[28rem] w-full object-contain" />
@@ -272,6 +232,7 @@ async function addWatermark() {
             :key="idx"
             class="shrink-0 rounded-lg border-2 p-0.5 transition-all"
             :class="idx === wmSelectedIndex ? 'border-blue-500 ring-2 ring-blue-300' : 'border-slate-300 hover:border-slate-400'"
+            :disabled="busy || loading"
             @click="selectPreviewImage(idx)"
           >
             <img :src="thumb" :alt="`Thumbnail ${idx + 1}`" class="h-16 w-16 rounded object-cover" >
@@ -279,7 +240,7 @@ async function addWatermark() {
         </div>
       </div>
 
-      <div class="space-y-3 rounded-2xl bg-white/70 p-4">
+      <fieldset :disabled="busy || loading" class="space-y-3 rounded-2xl bg-white/70 p-4">
         <label class="text-sm font-semibold">
           Watermark Type
           <select v-model="wmType" class="field-control mt-1">
@@ -331,10 +292,19 @@ async function addWatermark() {
           </select>
         </label>
 
-        <button class="btn-primary" @click="addWatermark">
+        <label class="block text-sm font-semibold">
+          Export processing
+          <select v-model="exportMode" class="field-control mt-1">
+            <option value="background">Background</option>
+            <option value="standard">Standard</option>
+          </select>
+          <span class="mt-1 block text-xs font-normal text-slate-600">Background keeps the page responsive during image export. Use Standard if your browser cannot export in the background.</span>
+        </label>
+        <button class="btn-primary" :disabled="busy || loading || !wmBaseFiles.length" @click="addWatermark">
           Add Watermark &amp; Download ZIP<span v-if="wmBaseFiles.length > 1"> ({{ wmBaseFiles.length }} images)</span>
         </button>
-      </div>
+      </fieldset>
     </div>
+    <button v-if="busy" class="btn-secondary mt-3" @click="cancelExport">Cancel export</button>
   </section>
 </template>

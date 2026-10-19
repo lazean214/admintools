@@ -1,9 +1,11 @@
 ﻿<script setup lang="ts">
-import { PDFDocument } from 'pdf-lib'
+import { ProcessingCancelledError } from '../utils/processing-client'
+import { useRasterPdfExport } from '../composables/useRasterPdfExport'
 import type { ProfileSettings } from '~/composables/useAuth'
 
 const status = ref('Ready')
 const generating = ref(false)
+const pdfExport = useRasterPdfExport()
 const auth = useAuth()
 
 const form = reactive({
@@ -178,6 +180,11 @@ function toDdMmYyyy(raw: string) {
 }
 
 async function generateListingPdf() {
+  if (generating.value) return
+  const run = pdfExport.begin()
+  const snapshot = { ...form }, assetSnapshot = { ...uploads }, storedSnapshot = { ...storedAssets }
+  const themeSnapshot = themeColor.value
+  let renderCanvas: HTMLCanvasElement | null = null
   generating.value = true
   setStatus('Generating Listing Agreement layout...')
 
@@ -191,12 +198,13 @@ async function generateListingPdf() {
     const height = mmToPt(H)
 
     const canvas = document.createElement('canvas')
+    renderCanvas = canvas
     canvas.width = Math.floor(s(W))
     canvas.height = Math.floor(s(H))
     const ctx = canvas.getContext('2d')
     if (!ctx) throw new Error('Could not initialize canvas context.')
 
-    const theme = themeColor.value
+    const theme = themeSnapshot
     const { r, g, b } = hexToRgb(theme)
     const themeStr = `rgb(${r}, ${g}, ${b})`
 
@@ -263,8 +271,9 @@ async function generateListingPdf() {
     ctx.fillRect(0, 0, s(W), s(H))
 
     // ========== HEADER ==========
-    const logoSource = uploads.logo ?? storedAssets.logoDataUrl
+    const logoSource = assetSnapshot.logo ?? storedSnapshot.logoDataUrl
     const logoImg = await loadOptionalImage(logoSource)
+    pdfExport.assertActive(run)
     if (logoImg) {
       ctx.drawImage(logoImg, s(M), s(7), s(38), s(22))
     } else {
@@ -310,7 +319,7 @@ async function generateListingPdf() {
     const today = new Date()
     const headerDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`
     ctx.fillText(headerDate, s(rhX + 17), s(24.5))
-    ctx.fillText(form.referenceNo, s(rhX + 17), s(29))
+    ctx.fillText(snapshot.referenceNo, s(rhX + 17), s(29))
 
     // Header bottom border
     ctx.strokeStyle = themeStr
@@ -326,11 +335,11 @@ async function generateListingPdf() {
     curY += 12
 
     const halfW = (CW - 8) / 2
-    labelValue('Full Name / Establishment:', form.ownerName, M, curY, halfW)
-    labelValue('Passport / Emirates ID Number:', form.ownerPassportEid, M + halfW + 8, curY, halfW)
+    labelValue('Full Name / Establishment:', snapshot.ownerName, M, curY, halfW)
+    labelValue('Passport / Emirates ID Number:', snapshot.ownerPassportEid, M + halfW + 8, curY, halfW)
     curY += 10
-    labelValue('ID Expiry Date:', toDdMmYyyy(form.ownerIdExpiry), M, curY, halfW)
-    labelValue('Email Address:', form.ownerEmail, M + halfW + 8, curY, halfW)
+    labelValue('ID Expiry Date:', toDdMmYyyy(snapshot.ownerIdExpiry), M, curY, halfW)
+    labelValue('Email Address:', snapshot.ownerEmail, M + halfW + 8, curY, halfW)
     curY += 12
 
     // ========== SECTION 2: PROPERTY DETAILS ==========
@@ -354,7 +363,7 @@ async function generateListingPdf() {
     ]
     let cbX = M + 2
     for (const [val, label] of ptTypes) {
-      drawCheck(cbX, curY, form.propertyType === val, label)
+      drawCheck(cbX, curY, snapshot.propertyType === val, label)
       cbX += 30
     }
     curY += 7
@@ -374,24 +383,24 @@ async function generateListingPdf() {
     groupHeader('Current Status', statusX, curY + 2.5)
     groupHeader('Furnishing', furnishX, curY + 2.5)
     curY += 6
-    drawCheck(statusX, curY, form.propertyStatus === 'vacant', 'Vacant')
-    drawCheck(statusX + 30, curY, form.propertyStatus === 'tenanted', 'Tenanted')
-    drawCheck(furnishX, curY, form.propertyFurnishing === 'furnished', 'Furnished')
-    drawCheck(furnishX + 30, curY, form.propertyFurnishing === 'unfurnished', 'Unfurnished')
+    drawCheck(statusX, curY, snapshot.propertyStatus === 'vacant', 'Vacant')
+    drawCheck(statusX + 30, curY, snapshot.propertyStatus === 'tenanted', 'Tenanted')
+    drawCheck(furnishX, curY, snapshot.propertyFurnishing === 'furnished', 'Furnished')
+    drawCheck(furnishX + 30, curY, snapshot.propertyFurnishing === 'unfurnished', 'Unfurnished')
     curY = cbBoxY + 38 + 8
 
     // Property fields grid (3 columns)
     const col3W = (CW - 12) / 3
-    labelValue('Building / Project Name:', form.propertyBuilding, M, curY, col3W * 2 + 6)
-    labelValue('Unit No.:', form.propertyUnit, M + col3W * 2 + 12, curY, col3W)
+    labelValue('Building / Project Name:', snapshot.propertyBuilding, M, curY, col3W * 2 + 6)
+    labelValue('Unit No.:', snapshot.propertyUnit, M + col3W * 2 + 12, curY, col3W)
     curY += 9
-    labelValue('Community / Area:', form.propertyCommunity, M, curY, col3W)
-    labelValue('BUA (SqFt):', form.propertyBua, M + col3W + 6, curY, col3W)
-    labelValue('Plot Size (SqFt):', form.propertyPlot, M + (col3W + 6) * 2, curY, col3W)
+    labelValue('Community / Area:', snapshot.propertyCommunity, M, curY, col3W)
+    labelValue('BUA (SqFt):', snapshot.propertyBua, M + col3W + 6, curY, col3W)
+    labelValue('Plot Size (SqFt):', snapshot.propertyPlot, M + (col3W + 6) * 2, curY, col3W)
     curY += 9
-    labelValue('Bedrooms:', form.propertyBedroom, M, curY, col3W)
-    labelValue('Bathrooms:', form.propertyBathroom, M + col3W + 6, curY, col3W)
-    labelValue('Parking Spaces:', form.propertyParking, M + (col3W + 6) * 2, curY, col3W)
+    labelValue('Bedrooms:', snapshot.propertyBedroom, M, curY, col3W)
+    labelValue('Bathrooms:', snapshot.propertyBathroom, M + col3W + 6, curY, col3W)
+    labelValue('Parking Spaces:', snapshot.propertyParking, M + (col3W + 6) * 2, curY, col3W)
     curY += 10
 
     // Rental amount highlight box
@@ -403,10 +412,10 @@ async function generateListingPdf() {
     ctx.font = `bold ${s(2.5)}px Arial`
     ctx.fillStyle = themeStr
     ctx.fillText('ASKING RENTAL AMOUNT (AED)', s(M + 3), s(curY + 4))
-    if (form.propertyRental.trim()) {
+    if (snapshot.propertyRental.trim()) {
       ctx.font = `bold ${s(4.5)}px Arial`
       ctx.fillStyle = '#1e293b'
-      ctx.fillText(form.propertyRental, s(M + 3), s(curY + 9.5))
+      ctx.fillText(snapshot.propertyRental, s(M + 3), s(curY + 9.5))
     }
     curY += 16
 
@@ -432,21 +441,21 @@ async function generateListingPdf() {
     ctx.fillText('The Landlord / legal representative has agreed to appoint the Broker to list and', s(M + 3), s(curY + 10))
     ctx.fillText('advertise the above property. Please select listing type:', s(M + 3), s(curY + 14))
 
-    drawCheck(M + 3, curY + 17, form.termsExclusive === 'exclusive', 'EXCLUSIVE')
-    drawCheck(M + 40, curY + 17, form.termsExclusive === 'nonexclusive', 'NON-EXCLUSIVE')
+    drawCheck(M + 3, curY + 17, snapshot.termsExclusive === 'exclusive', 'EXCLUSIVE')
+    drawCheck(M + 40, curY + 17, snapshot.termsExclusive === 'nonexclusive', 'NON-EXCLUSIVE')
 
     ctx.font = `italic 400 ${s(2.5)}px Arial`
     ctx.fillStyle = '#334155'
     ctx.fillText('Period of listing:', s(M + 3), s(curY + 24.5))
 
-    drawCheck(M + 3, curY + 27, form.termsDuration === '1', '1 Month')
-    drawCheck(M + 30, curY + 27, form.termsDuration === '2', '2 Months')
-    drawCheck(M + 57, curY + 27, form.termsDuration === '3', '3 Months')
-    drawCheck(M + 84, curY + 27, form.termsDuration === 'until', 'Until:')
-    if (form.termsDurationDate.trim()) {
+    drawCheck(M + 3, curY + 27, snapshot.termsDuration === '1', '1 Month')
+    drawCheck(M + 30, curY + 27, snapshot.termsDuration === '2', '2 Months')
+    drawCheck(M + 57, curY + 27, snapshot.termsDuration === '3', '3 Months')
+    drawCheck(M + 84, curY + 27, snapshot.termsDuration === 'until', 'Until:')
+    if (snapshot.termsDurationDate.trim()) {
       ctx.font = `400 ${s(2.5)}px Arial`
       ctx.fillStyle = '#1e293b'
-      ctx.fillText(toDdMmYyyy(form.termsDurationDate), s(M + 102), s(curY + 29.5))
+      ctx.fillText(toDdMmYyyy(snapshot.termsDurationDate), s(M + 102), s(curY + 29.5))
     }
     curY += 38
 
@@ -502,7 +511,8 @@ async function generateListingPdf() {
     const sigBoxH = 18
     const sigX = (W - sigBoxW) / 2
 
-    const sigImg = await loadOptionalImage(uploads.signature)
+    const sigImg = await loadOptionalImage(assetSnapshot.signature)
+    pdfExport.assertActive(run)
     if (sigImg) {
       ctx.drawImage(sigImg, s(sigX), s(curY), s(sigBoxW), s(sigBoxH))
     }
@@ -519,10 +529,10 @@ async function generateListingPdf() {
     ctx.textAlign = 'center'
     ctx.fillText("Landlord's Name & Signature", s(W / 2), s(curY + sigBoxH + 5))
 
-    if (form.ownerSignatureName.trim()) {
+    if (snapshot.ownerSignatureName.trim()) {
       ctx.font = `400 ${s(2.5)}px Arial`
       ctx.fillStyle = '#1e293b'
-      ctx.fillText(form.ownerSignatureName, s(W / 2), s(curY + sigBoxH + 9.5))
+      ctx.fillText(snapshot.ownerSignatureName, s(W / 2), s(curY + sigBoxH + 9.5))
     }
 
     ctx.font = `italic ${s(2.4)}px Arial`
@@ -533,29 +543,16 @@ async function generateListingPdf() {
     // === OUTPUT PDF ===
     setStatus('Creating PDF...')
 
-    const imageBlob = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob((blob) => {
-        if (!blob) { reject(new Error('Failed to convert canvas to image.')); return }
-        resolve(blob)
-      }, 'image/png')
-    })
-
-    const imageBytes = new Uint8Array(await imageBlob.arrayBuffer())
-    const outDoc = await PDFDocument.create()
-    const outPage = outDoc.addPage([width, height])
-    const embedded = await outDoc.embedPng(imageBytes)
-    outPage.drawImage(embedded, { x: 0, y: 0, width, height })
-
-    const output = await outDoc.save({ useObjectStreams: false })
-    const outBlob = new Blob([Uint8Array.from(output)], { type: 'application/pdf' })
+    const outBlob = await pdfExport.create(canvas, width, height, run)
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
     openBlobInNewTab(outBlob)
     downloadBlob(outBlob, `listing-agreement-${stamp}.pdf`)
     setStatus('Done. PDF generated and downloaded.')
   } catch (error) {
     console.error(error)
-    setStatus('PDF generation failed. Check inputs and try again.')
+    setStatus(error instanceof ProcessingCancelledError ? 'PDF export cancelled. No file was downloaded.' : error instanceof Error ? error.message : 'PDF generation failed. Check inputs and try again.')
   } finally {
+    if (renderCanvas) renderCanvas.width = renderCanvas.height = 0
     generating.value = false
   }
 }
@@ -567,7 +564,7 @@ async function generateListingPdf() {
     <p class="mt-2 text-sm text-slate-600">
       Fill the form details and generate a branded PDF. Choose a theme color to match your company's brand.
     </p>
-    <p class="status-pill mt-3">{{ status }}</p>
+    <p class="status-pill mt-3" role="status" aria-live="polite">{{ status }}</p>
 
     <div class="mt-5 grid gap-4 lg:grid-cols-2">
       <!-- Landlord Details -->
@@ -752,5 +749,6 @@ async function generateListingPdf() {
         {{ generating ? 'Generating PDF...' : 'Generate PDF' }}
       </button>
     </div>
+    <button v-if="generating" type="button" class="btn-secondary mt-3" @click="pdfExport.cancel">Cancel PDF export</button>
   </section>
 </template>

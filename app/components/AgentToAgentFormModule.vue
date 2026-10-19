@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { PDFDocument } from 'pdf-lib'
+import { ProcessingCancelledError } from '../utils/processing-client'
+import { useRasterPdfExport } from '../composables/useRasterPdfExport'
 import type { ProfileSettings } from '~/composables/useAuth'
 
 type RoleType = 'buyer' | 'seller'
 
 const status = ref('Ready')
 const generating = ref(false)
+const pdfExport = useRasterPdfExport()
 
 const form = reactive({
   role: 'buyer' as RoleType,
@@ -212,6 +214,11 @@ function isNo(value: string) {
 }
 
 async function generateAgentToAgentPdf() {
+  if (generating.value) return
+  const run = pdfExport.begin()
+  const snapshot = { ...form }, assetSnapshot = { ...uploads }, storedSnapshot = { ...storedAssets }
+  const themeSnapshot = themeColor.value
+  let renderCanvas: HTMLCanvasElement | null = null
   generating.value = true
   setStatus('Generating Form I layout...')
 
@@ -227,12 +234,13 @@ async function generateAgentToAgentPdf() {
     const height = mmToPt(H)
 
     const canvas = document.createElement('canvas')
+    renderCanvas = canvas
     canvas.width = Math.floor(s(W))
     canvas.height = Math.floor(s(H))
     const ctx = canvas.getContext('2d')
     if (!ctx) throw new Error('Could not initialize canvas context.')
 
-    const theme = themeColor.value
+    const theme = themeSnapshot
     const { r, g, b } = hexToRgb(theme)
     const themeStr = `rgb(${r}, ${g}, ${b})`
     const lightBg = lightenColor(theme, 0.93)
@@ -336,8 +344,9 @@ async function generateAgentToAgentPdf() {
 
     // ========== HEADER ==========
     // Logo area
-    const logoSource = uploads.logo ?? storedAssets.logoDataUrl
+    const logoSource = assetSnapshot.logo ?? storedSnapshot.logoDataUrl
     const logoImg = await loadOptionalImage(logoSource)
+    pdfExport.assertActive(run)
     if (logoImg) {
       ctx.drawImage(logoImg, s(M), s(6), s(35), s(18))
     } else {
@@ -375,8 +384,8 @@ async function generateAgentToAgentPdf() {
     ctx.textAlign = 'left'
     ctx.font = `400 ${s(2.1)}px Arial`
     ctx.fillStyle = '#111827'
-    ctx.fillText(form.brn, s(rhX + 15), s(8))
-    ctx.fillText(form.strNo, s(rhX + 15), s(12.5))
+    ctx.fillText(snapshot.brn, s(rhX + 15), s(8))
+    ctx.fillText(snapshot.strNo, s(rhX + 15), s(12.5))
     const today = new Date()
     const headerDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`
     ctx.fillText(headerDate, s(rhX + 15), s(17))
@@ -400,7 +409,7 @@ async function generateAgentToAgentPdf() {
     subBox("THE AGENT/BROKER - BUYER'S AGENT (B)", M + HALF + 6, boxY, HALF, boxH)
 
     // Agent column helper
-    function drawAgentCol(x: number, w: number, data: typeof form | null, formLabel: string) {
+    function drawAgentCol(x: number, w: number, data: typeof snapshot | null, formLabel: string) {
       let y = boxY + 5
       labelValue('Name of Establishment:', data?.establishmentName || '', x + 1.5, y, w - 3); y += 6
       labelValue('Address:', data?.officeAddress || '', x + 1.5, y, w - 3); y += 6
@@ -424,8 +433,8 @@ async function generateAgentToAgentPdf() {
       labelValue(`${formLabel}:`, data?.formRefNo || '', x + 1.5, y, w - 3)
     }
 
-    drawAgentCol(M, HALF, form.role === 'seller' ? form : null, "Landlord's Form A No")
-    drawAgentCol(M + HALF + 6, HALF, form.role === 'buyer' ? form : null, "Buyer's Form B No")
+    drawAgentCol(M, HALF, snapshot.role === 'seller' ? snapshot : null, "Landlord's Form A No")
+    drawAgentCol(M + HALF + 6, HALF, snapshot.role === 'buyer' ? snapshot : null, "Buyer's Form B No")
 
     // Declarations
     const declY = boxY + boxH + 3
@@ -525,7 +534,7 @@ async function generateAgentToAgentPdf() {
     // Section 2 fields
     const pw = HALF - 2
     let py = s23Y + 13
-    labelValueFull('Property Address:', form.propertyAddress, s2X + 1, py, pw); py += 7
+    labelValueFull('Property Address:', snapshot.propertyAddress, s2X + 1, py, pw); py += 7
     // Second address line
     ctx.strokeStyle = '#9ca3af'
     ctx.lineWidth = s(0.1)
@@ -535,22 +544,22 @@ async function generateAgentToAgentPdf() {
     ctx.lineTo(s(s2X + 1 + pw), s(py + 2))
     ctx.stroke()
     ctx.setLineDash([])
-    if (form.propertyAddressLine2.trim()) {
+    if (snapshot.propertyAddressLine2.trim()) {
       ctx.font = `400 ${s(2.2)}px Arial`
       ctx.fillStyle = '#111827'
-      ctx.fillText(form.propertyAddressLine2, s(s2X + 1), s(py + 1.5))
+      ctx.fillText(snapshot.propertyAddressLine2, s(s2X + 1), s(py + 1.5))
     }
     py += 5
-    labelValue('Master Developer:', form.propertyDeveloper, s2X + 1, py, pw); py += 6
-    labelValue('Master Project Name:', form.projectName, s2X + 1, py, pw); py += 7
+    labelValue('Master Developer:', snapshot.propertyDeveloper, s2X + 1, py, pw); py += 6
+    labelValue('Master Project Name:', snapshot.projectName, s2X + 1, py, pw); py += 7
 
     // "Listing Agent to Complete" italic label
     ctx.font = `italic 600 ${s(2)}px Arial`
     ctx.fillStyle = themeStr
     ctx.fillText('Listing Agent to Complete:', s(s2X + 1), s(py)); py += 4
-    labelValue('Building Name:', form.buildingName, s2X + 1, py, pw); py += 6
-    labelValue('Listed Price:', form.price, s2X + 1, py, pw); py += 6
-    labelValueFull('Description:', form.description, s2X + 1, py, pw); py += 7
+    labelValue('Building Name:', snapshot.buildingName, s2X + 1, py, pw); py += 6
+    labelValue('Listed Price:', snapshot.price, s2X + 1, py, pw); py += 6
+    labelValueFull('Description:', snapshot.description, s2X + 1, py, pw); py += 7
     // Second description line
     ctx.strokeStyle = '#9ca3af'
     ctx.lineWidth = s(0.1)
@@ -560,10 +569,10 @@ async function generateAgentToAgentPdf() {
     ctx.lineTo(s(s2X + 1 + pw), s(py + 2))
     ctx.stroke()
     ctx.setLineDash([])
-    if (form.descriptionLine2.trim()) {
+    if (snapshot.descriptionLine2.trim()) {
       ctx.font = `400 ${s(2.2)}px Arial`
       ctx.fillStyle = '#111827'
-      ctx.fillText(form.descriptionLine2, s(s2X + 1), s(py + 1.5))
+      ctx.fillText(snapshot.descriptionLine2, s(s2X + 1), s(py + 1.5))
     }
     py += 6
 
@@ -571,8 +580,8 @@ async function generateAgentToAgentPdf() {
     ctx.font = `600 ${s(2.2)}px Arial`
     ctx.fillStyle = '#374151'
     ctx.fillText('Is this property tenanted?', s(s2X + 1), s(py))
-    drawCheck(s2X + 55, py - 1, isYes(form.isTenanted), 'Yes')
-    drawCheck(s2X + 68, py - 1, isNo(form.isTenanted), 'No')
+    drawCheck(s2X + 55, py - 1, isYes(snapshot.isTenanted), 'Yes')
+    drawCheck(s2X + 68, py - 1, isNo(snapshot.isTenanted), 'No')
 
     // Section 3 fields (right column)
     const s3X = M + HALF + 6
@@ -612,40 +621,40 @@ async function generateAgentToAgentPdf() {
     ctx.strokeRect(s(col2X), s(cy), s(pctBoxW), s(pctBoxH))
     ctx.setLineDash([])
     // Fill values
-    if (form.commissionSeller.trim()) {
+    if (snapshot.commissionSeller.trim()) {
       ctx.font = `600 ${s(3.2)}px Arial`
       ctx.fillStyle = '#111827'
       ctx.textAlign = 'center'
-      ctx.fillText(form.commissionSeller, s(col1X + pctBoxW / 2), s(cy + 5.5))
+      ctx.fillText(snapshot.commissionSeller, s(col1X + pctBoxW / 2), s(cy + 5.5))
       ctx.textAlign = 'left'
     }
-    if (form.commissionBuyer.trim()) {
+    if (snapshot.commissionBuyer.trim()) {
       ctx.font = `600 ${s(3.2)}px Arial`
       ctx.fillStyle = '#111827'
       ctx.textAlign = 'center'
-      ctx.fillText(form.commissionBuyer, s(col2X + pctBoxW / 2), s(cy + 5.5))
+      ctx.fillText(snapshot.commissionBuyer, s(col2X + pctBoxW / 2), s(cy + 5.5))
       ctx.textAlign = 'left'
     }
     cy += pctBoxH + 4
 
-    labelValueFull("Tenant's Name (Family Name Only):", form.clientName, s3X + 1, cy, s3W - 2); cy += 8
-    labelValue('Budget:', form.budget, s3X + 1, cy, s3W - 2); cy += 7
+    labelValueFull("Tenant's Name (Family Name Only):", snapshot.clientName, s3X + 1, cy, s3W - 2); cy += 8
+    labelValue('Budget:', snapshot.budget, s3X + 1, cy, s3W - 2); cy += 7
 
     // Agency fee paid by
     ctx.font = `600 ${s(2.2)}px Arial`
     ctx.fillStyle = '#374151'
     ctx.fillText('Agency fee paid by:', s(s3X + 1), s(cy))
-    drawCheck(s3X + 35, cy - 1, form.agencyFeePaidBy === 'Seller', 'Seller')
-    drawCheck(s3X + 50, cy - 1, form.agencyFeePaidBy === 'Buyer', 'Buyer')
-    drawCheck(s3X + 63, cy - 1, form.agencyFeePaidBy === 'Negotiable', 'Neg.')
+    drawCheck(s3X + 35, cy - 1, snapshot.agencyFeePaidBy === 'Seller', 'Seller')
+    drawCheck(s3X + 50, cy - 1, snapshot.agencyFeePaidBy === 'Buyer', 'Buyer')
+    drawCheck(s3X + 63, cy - 1, snapshot.agencyFeePaidBy === 'Negotiable', 'Neg.')
     cy += 6
 
     // Has buyer contacted listing agent?
     ctx.font = `600 ${s(2.1)}px Arial`
     ctx.fillStyle = '#374151'
     ctx.fillText('Has this buyer contacted the listing agent?', s(s3X + 1), s(cy))
-    drawCheck(s3X + 55, cy - 1, isYes(form.isBuyerAgent), 'Yes')
-    drawCheck(s3X + 68, cy - 1, isNo(form.isBuyerAgent), 'No')
+    drawCheck(s3X + 55, cy - 1, isYes(snapshot.isBuyerAgent), 'Yes')
+    drawCheck(s3X + 68, cy - 1, isNo(snapshot.isBuyerAgent), 'No')
 
     // Section border
     const s23EndY = Math.max(py + 3, cy + 3)
@@ -707,10 +716,12 @@ async function generateAgentToAgentPdf() {
     ctx.textAlign = 'left'
 
     // Draw signature & stamp images on the user's side
-    const sigImg = await loadOptionalImage(uploads.signature)
-    const stampSource = uploads.stamp ?? storedAssets.stampDataUrl
+    const sigImg = await loadOptionalImage(assetSnapshot.signature)
+    pdfExport.assertActive(run)
+    const stampSource = assetSnapshot.stamp ?? storedSnapshot.stampDataUrl
     const stampImg = await loadOptionalImage(stampSource)
-    const userSigX = form.role === 'seller' ? sigAX : sigBX
+    pdfExport.assertActive(run)
+    const userSigX = snapshot.role === 'seller' ? sigAX : sigBX
     if (sigImg) ctx.drawImage(sigImg, s(userSigX), s(sigY), s(sigBoxW / 2 - 2), s(sigBoxH - 1))
     if (stampImg) ctx.drawImage(stampImg, s(userSigX + sigBoxW / 2 + 2), s(sigY), s(sigBoxW / 2 - 2), s(sigBoxH - 1))
 
@@ -729,6 +740,7 @@ async function generateAgentToAgentPdf() {
 
     // Footer logos
     const footerLogosImg = await loadOptionalImage('/rera-logo.png')
+    pdfExport.assertActive(run)
     if (footerLogosImg) {
       const footerLogoH = 12
       const aspect = footerLogosImg.naturalWidth / footerLogosImg.naturalHeight
@@ -741,30 +753,16 @@ async function generateAgentToAgentPdf() {
     // === OUTPUT PDF ===
     setStatus('Creating PDF...')
 
-    const imageBlob = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob((blob) => {
-        if (!blob) { reject(new Error('Failed to convert canvas to image.')); return }
-        resolve(blob)
-      }, 'image/png')
-    })
-
-    const imageBytes = new Uint8Array(await imageBlob.arrayBuffer())
-    const outDoc = await PDFDocument.create()
-    const outPage = outDoc.addPage([width, height])
-    const embedded = await outDoc.embedPng(imageBytes)
-    outPage.drawImage(embedded, { x: 0, y: 0, width, height })
-
-    const output = await outDoc.save({ useObjectStreams: false })
-    const outputBytes = Uint8Array.from(output)
+    const outBlob = await pdfExport.create(canvas, width, height, run)
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const outBlob = new Blob([outputBytes], { type: 'application/pdf' })
     openBlobInNewTab(outBlob)
     downloadBlob(outBlob, `agent-to-agent-filled-${stamp}.pdf`)
     setStatus('Done. PDF generated and downloaded.')
   } catch (error) {
     console.error(error)
-    setStatus('PDF generation failed. Check inputs and try again.')
+    setStatus(error instanceof ProcessingCancelledError ? 'PDF export cancelled. No file was downloaded.' : error instanceof Error ? error.message : 'PDF generation failed. Check inputs and try again.')
   } finally {
+    if (renderCanvas) renderCanvas.width = renderCanvas.height = 0
     generating.value = false
   }
 }
@@ -776,7 +774,7 @@ async function generateAgentToAgentPdf() {
     <p class="mt-2 text-sm text-slate-600">
       Fill the form details and generate a branded PDF. Choose a theme color to match your company's brand.
     </p>
-    <p class="status-pill mt-3">{{ status }}</p>
+    <p class="status-pill mt-3" role="status" aria-live="polite">{{ status }}</p>
 
     <div class="mt-5 grid gap-4 lg:grid-cols-2">
       <div class="rounded-2xl bg-white/70 p-4">
@@ -1012,5 +1010,6 @@ async function generateAgentToAgentPdf() {
         {{ generating ? 'Generating PDF...' : 'Generate PDF' }}
       </button>
     </div>
+    <button v-if="generating" type="button" class="btn-secondary mt-3" @click="pdfExport.cancel">Cancel PDF export</button>
   </section>
 </template>

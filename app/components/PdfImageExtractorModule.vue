@@ -1,5 +1,14 @@
 <script setup lang="ts">
 import JSZip from 'jszip'
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+import type { PDFDocumentLoadingTask, PDFPageProxy } from 'pdfjs-dist'
+import { pdfPixelsToRgba, validatePdfRegion } from '../utils/pdf-images'
+import type { PdfImagePixels, PdfImageRegion } from '../utils/pdf-images'
+import { validateDimensions } from '../utils/processing'
+
+let extractionGeneration = 0
+let activeTask: PDFDocumentLoadingTask | null = null
+let disposed = false
 
 type ExtractedPdfImage = {
   id: string
@@ -55,87 +64,43 @@ async function canvasToBlob(canvas: HTMLCanvasElement, mime: string, quality = 0
   })
 }
 
-function imageDataToCanvas(imageData: {
-  width: number
-  height: number
-  data?: Uint8Array | Uint8ClampedArray
-  bitmap?: ImageBitmap
-}) {
+function imageDataToCanvas(imageData: PdfImagePixels) {
+  validateDimensions(imageData.width, imageData.height)
   const canvas = document.createElement('canvas')
   canvas.width = imageData.width
   canvas.height = imageData.height
   const context = canvas.getContext('2d')
-  if (!context) {
-    return null
-  }
-
-  if (imageData.bitmap) {
-    context.drawImage(imageData.bitmap, 0, 0, imageData.width, imageData.height)
-    return canvas
-  }
-
-  if (!imageData.data) {
-    return null
-  }
-
-  const source = imageData.data
-  const pixels = imageData.width * imageData.height
-  let rgba: Uint8ClampedArray
-
-  if (source.length === pixels * 4) {
-    rgba = source instanceof Uint8ClampedArray ? source : new Uint8ClampedArray(source)
-  } else if (source.length === pixels * 3) {
-    rgba = new Uint8ClampedArray(pixels * 4)
-    for (let i = 0, j = 0; i < source.length; i += 3, j += 4) {
-      rgba[j] = source[i]
-      rgba[j + 1] = source[i + 1]
-      rgba[j + 2] = source[i + 2]
-      rgba[j + 3] = 255
-    }
-  } else if (source.length === pixels) {
-    rgba = new Uint8ClampedArray(pixels * 4)
-    for (let i = 0, j = 0; i < source.length; i += 1, j += 4) {
-      const value = source[i]
-      rgba[j] = value
-      rgba[j + 1] = value
-      rgba[j + 2] = value
-      rgba[j + 3] = 255
-    }
-  } else {
-    return null
-  }
-
-  const out = new ImageData(rgba, imageData.width, imageData.height)
-  context.putImageData(out, 0, 0)
+  if (!context) throw new Error('Could not create the image canvas.')
+  if (imageData.bitmap) context.drawImage(imageData.bitmap, 0, 0)
+  else context.putImageData(new ImageData(pdfPixelsToRgba(imageData), imageData.width, imageData.height), 0, 0)
   return canvas
 }
 
-function getPdfObject(page: any, objId: string) {
-  return new Promise<any>((resolve, reject) => {
-    try {
-      if (page.objs.has(objId)) {
-        resolve(page.objs.get(objId))
-        return
-      }
-      page.objs.get(objId, (data: any) => resolve(data))
-    } catch (error) {
-      reject(error)
-    }
-  })
-}
-
-async function pdfImageDataToBlob(
-  imageData: { width: number; height: number; data?: Uint8Array | Uint8ClampedArray; bitmap?: ImageBitmap },
-  format: 'png' | 'jpg',
-  qualityPercent: number
-) {
-  const canvas = imageDataToCanvas(imageData)
-  if (!canvas) {
-    return null
-  }
+async function pdfCanvasToBlob(canvas: HTMLCanvasElement, format: 'png' | 'jpg', qualityPercent: number, region?: PdfImageRegion) {
   const mime = format === 'png' ? 'image/png' : 'image/jpeg'
   const quality = format === 'jpg' ? qualityPercent / 100 : 1
-  return await canvasToBlob(canvas, mime, quality)
+  if (!region) return await canvasToBlob(canvas, mime, quality)
+  validatePdfRegion(region, canvas.width, canvas.height)
+  const cropped = document.createElement('canvas')
+  cropped.width = region.w
+  cropped.height = region.h
+  const cropContext = cropped.getContext('2d')
+  if (!cropContext) throw new Error('Could not crop the grouped PDF image.')
+  cropContext.drawImage(canvas, region.x, region.y, region.w, region.h, 0, 0, region.w, region.h)
+  try { return await canvasToBlob(cropped, mime, quality) }
+  finally { cropped.width = cropped.height = 0 }
+}
+
+function getPdfObject(page: PDFPageProxy, objId: string): Promise<PdfImagePixels | null> {
+  const objects = objId.startsWith('g_') ? page.commonObjs : page.objs
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Timed out reading a PDF image.')), 15000)
+    const finish = (value: PdfImagePixels | null) => { clearTimeout(timer); resolve(value) }
+    try {
+      if (objects.has(objId)) finish(objects.get(objId))
+      else objects.get(objId, finish)
+    } catch (error) { clearTimeout(timer); reject(error) }
+  })
 }
 
 function clearPdfExtractedImages() {
@@ -146,6 +111,7 @@ function clearPdfExtractedImages() {
 }
 
 function onPdfFileChange(event: Event) {
+  if (pdfBusy.value || pdfDownloading.value) return
   const target = event.target as HTMLInputElement
   pdfFile.value = target.files?.[0] ?? null
   clearPdfExtractedImages()
@@ -179,7 +145,7 @@ async function downloadSelectedPdfImages() {
 
   try {
     if (selectedImages.length === 1) {
-      downloadBlob(selectedImages[0].blob, selectedImages[0].name)
+      downloadBlob(selectedImages[0]!.blob, selectedImages[0]!.name)
     } else {
       await toZipAndDownload(
         selectedImages.map((image) => ({ name: image.name, blob: image.blob })),
@@ -196,95 +162,95 @@ async function downloadSelectedPdfImages() {
 }
 
 async function extractPdfImages() {
-  if (!pdfFile.value) {
-    setStatus('Select a PDF first.')
-    return
-  }
-
+  if (pdfBusy.value || pdfDownloading.value) return
+  const file = pdfFile.value
+  if (!file) { setStatus('Select a PDF first.'); return }
+  const generation = ++extractionGeneration
+  const format = pdfFormat.value, quality = pdfQuality.value
+  const files: ExtractedPdfImage[] = []
+  let task: PDFDocumentLoadingTask | null = null
+  let published = false
+  const isCurrent = () => !disposed && generation === extractionGeneration
   pdfBusy.value = true
   pdfProgress.value = 0
   clearPdfExtractedImages()
   setStatus('Extracting embedded images from PDF...')
-
   try {
+    if (file.size > 64 * 1024 * 1024) throw new Error('Choose a PDF smaller than 64 MB.')
     const pdfjs = await import('pdfjs-dist')
-    pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
-
-    const data = await pdfFile.value.arrayBuffer()
-    const pdfDocument = await pdfjs.getDocument({ data }).promise
-    const files: ExtractedPdfImage[] = []
+    pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
+    const data = await file.arrayBuffer()
+    if (!isCurrent()) return
+    task = pdfjs.getDocument({ data })
+    activeTask = task
+    const pdfDocument = await task.promise
     const seenObjectIds = new Set<string>()
-    let index = 1
-
-    for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
+    let totalBytes = 0
+    async function appendCanvas(canvas: HTMLCanvasElement, region?: PdfImageRegion) {
+      if (!isCurrent()) return
+      if (files.length >= 500) throw new Error('This PDF contains too many images. Split it into smaller documents.')
+      const blob = await pdfCanvasToBlob(canvas, format, quality, region)
+      if (!isCurrent()) return
+      totalBytes += blob.size
+      if (totalBytes > 128 * 1024 * 1024) throw new Error('Extracted images exceed 128 MB. Split this PDF into smaller documents.')
+      const index = files.length + 1
+      files.push({ id: String(index), name: 'image-' + index + '.' + format, blob, previewUrl: URL.createObjectURL(blob), selected: true })
+    }
+    async function append(image: PdfImagePixels | null) {
+      if (!image || !isCurrent()) return
+      const canvas = imageDataToCanvas(image)
+      try { await appendCanvas(canvas) }
+      finally { canvas.width = canvas.height = 0 }
+    }
+    for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber++) {
+      if (!isCurrent()) return
       const page = await pdfDocument.getPage(pageNumber)
-      const operatorList = await page.getOperatorList()
-
-      for (let opIndex = 0; opIndex < operatorList.fnArray.length; opIndex += 1) {
-        const fn = operatorList.fnArray[opIndex]
-        const args = operatorList.argsArray[opIndex] || []
-
-        if (fn === pdfjs.OPS.paintImageXObject || fn === pdfjs.OPS.paintImageXObjectRepeat) {
-          const objId = String(args[0])
-          if (!objId || seenObjectIds.has(objId)) {
-            continue
+      try {
+        const operators = await page.getOperatorList()
+        for (let op = 0; op < operators.fnArray.length; op++) {
+          if (!isCurrent()) return
+          const fn = operators.fnArray[op], args = operators.argsArray[op] || []
+          if (fn === pdfjs.OPS.paintImageXObject || fn === pdfjs.OPS.paintImageXObjectRepeat) {
+            const id = String(args[0] || '')
+            // Page-local IDs may repeat; shared objects use the common pool.
+            const key = id.startsWith('g_') ? id : pageNumber + ':' + id
+            if (!id || seenObjectIds.has(key)) continue
+            await append(await getPdfObject(page, id))
+            seenObjectIds.add(key)
+          } else if (fn === pdfjs.OPS.paintInlineImageXObject) {
+            await append(args[0] as PdfImagePixels)
+          } else if (fn === pdfjs.OPS.paintInlineImageXObjectGroup) {
+            const regions = args[1] as PdfImageRegion[]
+            if (!Array.isArray(regions)) throw new Error('PDF contains an invalid grouped image map.')
+            // The first argument is an atlas. Export each original region,
+            // rather than treating the atlas as a single embedded image.
+            const atlas = imageDataToCanvas(args[0] as PdfImagePixels)
+            try { for (const region of regions) await appendCanvas(atlas, region) }
+            finally { atlas.width = atlas.height = 0 }
           }
-
-          const imageObj = await getPdfObject(page, objId)
-          const blob = await pdfImageDataToBlob(imageObj, pdfFormat.value, pdfQuality.value)
-          if (!blob) {
-            continue
-          }
-
-          seenObjectIds.add(objId)
-          files.push({
-            id: `${pageNumber}-${index}-${objId}`,
-            name: `image-${index}.${pdfFormat.value}`,
-            blob,
-            previewUrl: URL.createObjectURL(blob),
-            selected: true
-          })
-          index += 1
-          continue
         }
-
-        if (fn === pdfjs.OPS.paintInlineImageXObject || fn === pdfjs.OPS.paintInlineImageXObjectGroup) {
-          const inlineImage = args[0]
-          const blob = await pdfImageDataToBlob(inlineImage, pdfFormat.value, pdfQuality.value)
-          if (!blob) {
-            continue
-          }
-
-          files.push({
-            id: `${pageNumber}-${index}-inline`,
-            name: `image-${index}.${pdfFormat.value}`,
-            blob,
-            previewUrl: URL.createObjectURL(blob),
-            selected: true
-          })
-          index += 1
-        }
-      }
-
-      pdfProgress.value = Math.round((pageNumber / pdfDocument.numPages) * 100)
+      } finally { page.cleanup() }
+      pdfProgress.value = Math.round(pageNumber / pdfDocument.numPages * 100)
     }
-
-    if (!files.length) {
-      setStatus('No embedded images were found in this PDF.')
-      return
-    }
-
+    if (!isCurrent()) return
     pdfExtractedImages.value = files
-    setStatus(`Done. Extracted ${files.length} embedded image(s).`)
+    published = true
+    setStatus(files.length ? 'Done. Extracted ' + files.length + ' embedded image(s).' : 'No embedded images were found in this PDF.')
   } catch (error) {
-    console.error(error)
-    setStatus('Extraction failed. Try another PDF.')
+    if (isCurrent()) setStatus(error instanceof Error ? error.message : 'Extraction failed. Try another PDF.')
   } finally {
-    pdfBusy.value = false
+    if (!published) for (const image of files) URL.revokeObjectURL(image.previewUrl)
+    if (activeTask === task) activeTask = null
+    await task?.destroy().catch(() => {})
+    if (isCurrent()) pdfBusy.value = false
   }
 }
 
 onBeforeUnmount(() => {
+  disposed = true
+  extractionGeneration++
+  void activeTask?.destroy().catch(() => {})
+  activeTask = null
   clearPdfExtractedImages()
 })
 </script>
@@ -293,25 +259,25 @@ onBeforeUnmount(() => {
   <section class="module-surface">
     <h2 class="module-title text-2xl font-bold">Extract Images</h2>
     <p class="mt-2 text-sm text-slate-600">Upload a PDF, extract embedded images, preview, and download one or many.</p>
-    <p class="status-pill mt-3">{{ status }}</p>
+    <p class="status-pill mt-3" role="status" aria-live="polite">{{ status }}</p>
 
     <div class="mt-5 grid gap-4 md:grid-cols-2">
       <label class="block rounded-2xl bg-white/70 p-4">
         <span class="mb-2 block text-sm font-semibold">Upload PDF</span>
-        <input type="file" accept="application/pdf" class="field-control" @change="onPdfFileChange" >
+        <input type="file" accept="application/pdf" class="field-control" :disabled="pdfBusy || pdfDownloading" @change="onPdfFileChange" >
       </label>
 
       <div class="grid gap-3 rounded-2xl bg-white/70 p-4 sm:grid-cols-2">
         <label class="text-sm font-semibold">
           Output Format
-          <select v-model="pdfFormat" class="field-control mt-1">
+          <select v-model="pdfFormat" class="field-control mt-1" :disabled="pdfBusy">
             <option value="png">PNG</option>
             <option value="jpg">JPG</option>
           </select>
         </label>
         <label class="text-sm font-semibold sm:col-span-2" v-if="pdfFormat === 'jpg'">
           JPG Quality ({{ pdfQuality }}%)
-          <input v-model.number="pdfQuality" type="range" min="10" max="100" class="mt-2 w-full" >
+          <input v-model.number="pdfQuality" :disabled="pdfBusy" type="range" min="10" max="100" class="mt-2 w-full" >
         </label>
       </div>
     </div>

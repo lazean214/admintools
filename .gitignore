@@ -9,6 +9,12 @@ dist
 # Node dependencies
 node_modules
 
+# Rust build products (generated browser WASM assets are versioned)
+crates/**/target/
+
+# Local PDF verification intermediates
+tmp/pdfs/
+
 # Logs
 logs
 *.log
