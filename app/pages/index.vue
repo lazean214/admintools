@@ -37,7 +37,7 @@ const baseModules = [
   },
   {
     title: 'Listing NOC',
-    description: 'Easy to use Listing NOC form and generate a PFD from the provided template.',
+    description: 'Easy to use Listing NOC form and generate a PDF from the provided template.',
     path: '/listing-noc-form',
     action: 'Open Listing NOC Form',
     icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4'
@@ -107,85 +107,150 @@ const baseModules = [
   }
 ]
 
-const modules = computed(() => {
-  if (auth.isAuthenticated.value) {
-    return [
-      {
-        title: 'Profile Settings',
-        description: 'Save company profile defaults (logo, stamp, and office details) for Form I in local storage.',
-        path: '/profile-settings',
-        action: 'Open Profile Settings',
-        icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z'
-      },
-      ...baseModules
-    ]
-  }
-
-  return [
-    {
-      title: 'Account Access',
-      description: 'Register or login to enable private profile settings and saved defaults.',
-      path: '/register',
-      action: 'Create Account',
-      icon: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z'
-    },
-    ...baseModules
-  ]
-})
+const query = ref('')
+const activeCategory = ref('All tools')
+const categories = ['All tools', 'Real estate forms', 'PDF tools', 'Image & signature']
+const groups = [
+  { title: 'Real estate forms', description: 'Prepare the paperwork for your next transaction.', paths: ['/agent-to-agent-form', '/listing-noc-form', '/ejari-form'] },
+  { title: 'PDF tools', description: 'Edit, compress, and get more from your documents.', paths: ['/pdf-editor', '/pdf-compression', '/pdf-image-extractor'] },
+  { title: 'Image & signature', description: 'Get your photos and signatures ready to use.', paths: ['/image-resize', '/e-signature', '/watermark', '/watermark-remover'] }
+]
+const visibleGroups = computed(() => groups
+  .filter(group => activeCategory.value === 'All tools' || activeCategory.value === group.title)
+  .map(group => ({ ...group, items: group.paths.map(path => baseModules.find(item => item.path === path)!).filter(item => `${item.title} ${item.description}`.toLowerCase().includes(query.value.trim().toLowerCase())) }))
+  .filter(group => group.items.length))
+const resultCount = computed(() => visibleGroups.value.reduce((count, group) => count + group.items.length, 0))
+function resetFilters() {
+  query.value = ''
+  activeCategory.value = 'All tools'
+}
 </script>
 
 <template>
-  <div class="app-shell md:px-8 md:py-8 mb-4">
-    <div class="app-container">
+  <div class="home-page">
+    <div class="home-container">
+      <a href="#tools" class="skip-link">Skip to tools</a>
       <AppTopNav />
-
-      <header class="module-surface mb-6 text-center">
-        <p class="mb-3 inline-block rounded-full bg-teal-50 px-4 py-1.5 text-xs font-bold uppercase tracking-[0.2em] text-teal-700">
-          Real Estate Admin Tools Suite
-        </p>
-        <h1 class="mb-3 text-2xl font-bold text-slate-900 sm:text-3xl md:text-5xl">
-          Admin Toolkit
-        </h1>
-        <p class="mx-auto max-w-2xl text-sm leading-relaxed text-slate-600 sm:text-base">
-          Streamline your real estate document management — fill forms, extract images,
-          resize photos, create e-signatures, and apply watermarks from one dashboard.
-        </p>
-      </header>
-
-      <section class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
-        <NuxtLink
-          v-for="item in modules"
-          :key="item.path"
-          :to="item.path"
-          class="group glass-panel flex flex-row items-center gap-4 rounded-2xl border border-slate-200/60 p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-teal-200 hover:shadow-lg sm:flex-col sm:items-start sm:p-5"
-        >
-          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-700 transition-colors group-hover:bg-teal-100 sm:h-11 sm:w-11">
-            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-              <path stroke-linecap="round" stroke-linejoin="round" :d="item.icon" />
-            </svg>
+      <main>
+        <header class="home-intro">
+          <div>
+            <h1>Your everyday<br><span>admin toolkit.</span></h1>
+            <p>Real estate forms, PDF editing, and image tools.<br class="hidden sm:block"> Find what you need and get straight to work.</p>
           </div>
-          <div class="min-w-0 flex-1">
-            <h2 class="text-sm font-bold text-slate-900 sm:text-base">{{ item.title }}</h2>
-            <p class="mt-0.5 line-clamp-2 text-xs text-slate-500 sm:mt-1 sm:text-sm">{{ item.description }}</p>
-          </div>
-        </NuxtLink>
-      </section>
+          <NuxtLink to="/real-estate-guide" class="guide-link">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" :d="baseModules[0]!.icon" /></svg>
+            <span><strong>Real Estate Guide</strong><span>Browse articles and guidance</span></span>
+            <span aria-hidden="true">↗</span>
+          </NuxtLink>
+        </header>
 
-      <footer class="module-surface mt-6 flex flex-wrap items-center justify-between gap-3">
-        <p class="text-sm text-slate-600">Support this toolkit:</p>
-        <a
-          href="https://paypal.me/ncsinfo"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#005ea6] bg-[#0070ba] px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-sky-200/60 transition hover:-translate-y-0.5 hover:border-[#004f8c] hover:bg-[#005ea6] hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0070ba]/40 sm:w-auto"
-          aria-label="Pay with PayPal Me"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4 fill-current">
-            <path d="M7.5 3.75h6.77c2.84 0 4.63 1.52 4.25 4.02-.34 2.21-2.2 3.73-4.7 3.73h-2.76c-.29 0-.54.2-.6.48l-.74 4.77a.62.62 0 0 1-.61.53H6.54l1.29-8.29c.05-.28.3-.49.59-.49h3.2c1.45 0 2.45-.75 2.64-1.92.2-1.33-.64-2.08-2.11-2.08H8.03a.62.62 0 0 0-.61.52L6.11 13.5H3.5l1.47-9.25c.15-.89.9-1.5 2.03-1.5Z" />
-          </svg>
-          Donate with PayPal
-        </a>
+        <section id="tools" class="tool-directory" aria-labelledby="tools-heading" tabindex="-1">
+          <div class="directory-heading">
+            <h2 id="tools-heading">Find your tool</h2>
+            <label class="tool-search">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="10.5" cy="10.5" r="6.5"/><path stroke-linecap="round" d="m16 16 4 4"/></svg>
+              <span class="sr-only">Search tools</span>
+              <input v-model="query" type="search" placeholder="Search tools…">
+            </label>
+          </div>
+          <div class="category-filters" role="group" aria-label="Filter tools by category">
+            <button v-for="category in categories" :key="category" type="button" :aria-pressed="activeCategory === category" @click="activeCategory = category">{{ category }}</button>
+          </div>
+          <p class="sr-only" role="status">{{ resultCount }} tools found</p>
+          <div v-for="group in visibleGroups" :key="group.title" class="tool-group">
+            <div class="group-heading"><h3>{{ group.title }}</h3><p>{{ group.description }}</p></div>
+            <div class="tool-list">
+              <NuxtLink v-for="item in group.items" :key="item.path" :to="item.path" class="tool-row">
+                <svg class="tool-icon" aria-hidden="true" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" :d="item.icon" /></svg>
+                <span class="tool-copy"><strong>{{ item.title }}</strong><span>{{ item.description }}</span></span>
+                <svg class="tool-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14m-5-5 5 5-5 5"/></svg>
+              </NuxtLink>
+            </div>
+          </div>
+          <div v-if="!visibleGroups.length" class="empty-results">
+            <h3>No tools found</h3><p>Try a different search or browse all tools.</p>
+            <button type="button" @click="resetFilters">Clear search and filters</button>
+          </div>
+        </section>
+        <aside class="account-note">
+          <div><h2>{{ auth.isAuthenticated.value ? 'Make it your workspace' : 'Less repetition, more getting things done.' }}</h2><p>Save company details, your logo, and stamp as defaults for Form I.</p></div>
+          <NuxtLink :to="auth.isAuthenticated.value ? '/profile-settings' : '/register'">{{ auth.isAuthenticated.value ? 'Profile settings' : 'Create an account' }} <span aria-hidden="true">→</span></NuxtLink>
+        </aside>
+      </main>
+      <footer class="home-footer">
+        <NuxtLink to="/contact">Contact & requests</NuxtLink>
+        <a href="https://paypal.me/ncsinfo" target="_blank" rel="noopener noreferrer">Support this toolkit <span aria-hidden="true">↗</span></a>
       </footer>
     </div>
   </div>
 </template>
+
+<style scoped>
+.home-page { background: #f8faf9; min-height: 100vh; padding: 24px; }
+.home-container { max-width: 1120px; margin-inline: auto; }
+.home-page :deep(.top-nav) { background: #fff; border: 1px solid #e2e8e5; box-shadow: none; backdrop-filter: none; border-radius: 12px; }
+.home-page :deep(.nav-chip) { background: transparent; border-color: transparent; border-radius: 8px; }
+.home-page :deep(.nav-chip-active) { background: #0f766e; color: white; box-shadow: none; }
+.home-page :deep(a:focus-visible), .home-page button:focus-visible { outline: 3px solid #0f766e; outline-offset: 4px; }
+.home-page ::selection { background: #ccfbf1; color: #134e4a; }
+.skip-link { position: absolute; left: 24px; top: -100px; z-index: 60; background: white; padding: 12px; }
+.skip-link:focus { top: 12px; }
+.home-intro { display: flex; justify-content: space-between; align-items: flex-end; gap: 40px; padding: 58px 0 48px; }
+h1 { font-size: clamp(2.5rem, 5vw, 3.75rem); line-height: 1.08; font-weight: 500; letter-spacing: -.035em; }
+h1 span { color: #0f766e; }
+.home-intro p { color: #52635f; font-size: 16px; line-height: 1.8; margin-top: 20px; }
+.guide-link { display: flex; align-items: center; gap: 16px; padding: 18px 0; border-bottom: 1px solid #cddbd6; color: #0f766e; }
+.guide-link > svg { width: 28px; height: 28px; flex-shrink: 0; }
+.guide-link strong { display: block; color: #172f29; font-size: 14px; }
+.guide-link span span { display: block; margin-top: 5px; color: #52635f; font-size: 12px; }
+.guide-link > span:last-child { margin-left: 16px; }
+.tool-directory { background: white; border: 1px solid #e0e7e3; border-radius: 16px; padding: 32px; scroll-margin-top: 100px; }
+.directory-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.directory-heading h2 { font-size: 24px; font-weight: 500; letter-spacing: -.025em; }
+.tool-search { display: flex; gap: 10px; align-items: center; border: 1px solid #bdcbc5; border-radius: 8px; padding: 11px 14px; width: 300px; }
+.tool-search:focus-within { outline: 2px solid #0f766e; outline-offset: 2px; }
+.tool-search svg { width: 18px; height: 18px; color: #52635f; flex-shrink: 0; }
+.tool-search input { width: 100%; min-width: 0; outline: none; font-size: 14px; background: transparent; caret-color: #0f766e; }
+.tool-search input::placeholder { color: #65766f; }
+.category-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 24px 0 8px; }
+.category-filters button { padding: 9px 14px; font-size: 13px; font-weight: 600; border-radius: 6px; color: #52635f; transition: background-color .15s; }
+.category-filters button:hover { background: #f0f5f2; }
+.category-filters button[aria-pressed='true'] { background: #0f766e; color: white; }
+.tool-group { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 32px; padding-top: 30px; margin-top: 24px; border-top: 1px solid #e5ebe7; }
+.group-heading h3 { font-size: 17px; font-weight: 600; }
+.group-heading p { color: #52635f; font-size: 13px; line-height: 1.7; margin-top: 8px; max-width: 26ch; }
+.tool-row { display: flex; align-items: center; gap: 16px; padding: 16px 12px; border-radius: 8px; transition: background-color .15s; }
+.tool-row + .tool-row { border-top: 1px solid #eef2ef; }
+.tool-row:hover { background: #f1f8f5; }
+.tool-icon { width: 24px; height: 24px; flex-shrink: 0; color: #0f766e; }
+.tool-copy { flex: 1; min-width: 0; }
+.tool-copy strong { display: block; font-size: 14px; font-weight: 700; color: #172f29; }
+.tool-copy > span { display: block; margin-top: 4px; font-size: 13px; line-height: 1.6; color: #52635f; }
+.tool-arrow { width: 18px; height: 18px; flex-shrink: 0; color: #52635f; }
+.account-note { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 32px 0; }
+.account-note h2 { font-size: 17px; font-weight: 500; }
+.account-note p { font-size: 13px; color: #52635f; margin-top: 6px; line-height: 1.6; }
+.account-note a { flex-shrink: 0; padding: 12px 16px; background: white; border: 1px solid #bdcbc5; border-radius: 8px; font-size: 13px; font-weight: 700; color: #0f655e; }
+.account-note a:hover { background: #eaf3ee; }
+.account-note a span { margin-left: 12px; }
+.home-footer { display: flex; justify-content: space-between; gap: 20px; border-top: 1px solid #e0e7e3; padding: 24px 0; font-size: 12px; color: #52635f; }
+.home-footer a:hover { color: #0f766e; text-decoration: underline; text-underline-offset: 4px; }
+.empty-results { text-align: center; padding: 56px 16px; }
+.empty-results h3 { font-size: 20px; }
+.empty-results p { margin-top: 8px; font-size: 14px; color: #52635f; }
+.empty-results button { margin-top: 20px; color: #0f766e; text-decoration: underline; text-underline-offset: 4px; font-size: 14px; }
+@media (max-width: 767px) {
+  .home-page { padding: 16px; }
+  .home-intro { align-items: stretch; flex-direction: column; gap: 20px; padding: 32px 4px; }
+  .guide-link { align-self: flex-start; padding: 12px 0; }
+  .directory-heading { align-items: stretch; flex-direction: column; gap: 18px; }
+  .tool-search { width: 100%; }
+  .tool-directory { padding: 20px 16px; }
+  .category-filters { gap: 4px; margin-top: 20px; }
+  .category-filters button { padding: 10px; font-size: 12px; min-height: 44px; }
+  .tool-group { grid-template-columns: minmax(0, 1fr); gap: 12px; padding-top: 24px; }
+  .group-heading p { max-width: none; margin-top: 4px; }
+  .tool-row { padding-inline: 4px; gap: 12px; }
+  .account-note { align-items: flex-start; flex-direction: column; gap: 16px; }
+}
+</style>
