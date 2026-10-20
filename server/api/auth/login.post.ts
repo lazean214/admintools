@@ -3,7 +3,7 @@ import { enforceAuthRateLimit } from '../../utils/auth-rate-limit'
 import { readAuthJson } from '../../utils/auth-body'
 
 export default defineEventHandler(async (event) => {
-  enforceAuthRateLimit(event,'login')
+  await enforceAuthRateLimit(event,'login')
   const body = await readAuthJson(event)
   const user = await loginUser(body)
 

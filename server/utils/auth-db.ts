@@ -240,11 +240,11 @@ export async function clearAuthSession(event: H3Event) {
 }
 
 export async function getSessionUser(event: H3Event): Promise<AuthPublicUser | null> {
-  const supabase = getSupabaseAdminClient()
   const token = getCookie(event, AUTH_COOKIE)
   if (!token) {
     return null
   }
+  const supabase = getSupabaseAdminClient()
 
   const { data: session, error: sessionError } = await supabase
     .from('auth_sessions')

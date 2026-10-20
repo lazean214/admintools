@@ -18,6 +18,9 @@ export default defineNuxtConfig({
     '/profile-settings': { headers: { 'Cache-Control': 'no-store' } }
   },
   modules: ['@nuxtjs/tailwindcss'],
+  tailwindcss: { viewer: false, exposeConfig: false },
+  // The app uses flat/scoped CSS. Nuxt 4.6 no longer resolves this legacy alias.
+  postcss: { plugins: { 'tailwindcss/nesting': false } },
   css: ['~/assets/css/tailwind.css'],
   app: {
     head: {

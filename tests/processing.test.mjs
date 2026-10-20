@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { cropRemoval, restoreCrop, retainUndo, validateDimensions, validateRemoval, resizeDimensions } from '../app/utils/processing.ts'
+import { cropRemoval, restoreCrop, retainUndo, validateDimensions, validateRemoval, resizeDimensions, imageResizeRegion } from '../app/utils/processing.ts'
 import { pdfPixelsToRgba, validatePdfRegion } from '../app/utils/pdf-images.ts'
 import { ProcessingClient, ProcessingCancelledError } from '../app/utils/processing-client.ts'
 import init, { remove_watermark, resize_rgba, composite_rgba, create_raster_pdf } from '../app/wasm/processing/admintools_processing.js'
@@ -323,4 +323,39 @@ test('worker PDF requests transfer pixel ownership and accept only PDF file resu
   client.cancel()
   await assert.rejects(next, ProcessingCancelledError)
   await assert.rejects(client.rasterPdf({ ...input(), pageWidth: Infinity }), /page dimensions/)
+})
+
+test('crop matches the requested ratio and position without stretching; fit keeps the full source', () => {
+  const centered = imageResizeRegion(1200, 800, 600, 600, 'crop')
+  assert.deepEqual(centered, { targetWidth: 600, targetHeight: 600, sourceWidth: 800, sourceHeight: 800, sourceX: 200, sourceY: 0 })
+  assert.equal(imageResizeRegion(1200, 800, 600, 600, 'crop', 0).sourceX, 0)
+  assert.equal(imageResizeRegion(1200, 800, 600, 600, 'crop', 100).sourceX, 400)
+  assert.equal(imageResizeRegion(800, 1200, 600, 600, 'crop', 50, 100).sourceY, 400)
+  assert.deepEqual(imageResizeRegion(1200, 800, 600, 600, 'fit'), { targetWidth: 600, targetHeight: 400, sourceWidth: 1200, sourceHeight: 800, sourceX: 0, sourceY: 0 })
+  for (const [w, h, tw, th] of [[1200, 800, 1920, 1080], [800, 1200, 1920, 1080], [1, 100, 100, 1], [800, 800, 400, 400]]) {
+    const region = imageResizeRegion(w, h, tw, th, 'crop', 100, 100)
+    assert.ok(Math.abs(region.sourceWidth / region.sourceHeight - tw / th) < 1e-8)
+    assert.ok(region.sourceX >= 0 && region.sourceY >= 0)
+    assert.ok(region.sourceX + region.sourceWidth <= w + 1e-8)
+    assert.ok(region.sourceY + region.sourceHeight <= h + 1e-8)
+  }
+  for (const size of [0, -1, 1.5, NaN, Infinity, 16385]) assert.throws(() => imageResizeRegion(1200, 800, size, 600, 'crop'))
+  assert.throws(() => imageResizeRegion(1200, 800, 600, 600, 'crop', 101))
+})
+
+test('resized crop preserves target ratio, stays bounded at every position, and fit ignores crop size', () => {
+  for (const [w, h, tw, th] of [[1200, 800, 1920, 1080], [800, 1200, 1080, 1920], [800, 800, 1080, 1080]]) {
+    for (const scale of [0.1, 0.25, 0.8, 1]) for (const x of [0, 50, 100]) for (const y of [0, 50, 100]) {
+      const r = imageResizeRegion(w, h, tw, th, 'crop', x, y, scale)
+      assert.ok(Math.abs(r.sourceWidth / r.sourceHeight - tw / th) < 1e-8)
+      assert.ok(r.sourceX >= 0 && r.sourceY >= 0)
+      assert.ok(r.sourceX + r.sourceWidth <= w + 1e-8)
+      assert.ok(r.sourceY + r.sourceHeight <= h + 1e-8)
+      assert.equal(r.targetWidth, tw)
+      assert.equal(r.targetHeight, th)
+    }
+  }
+  assert.deepEqual(imageResizeRegion(1200, 800, 600, 600, 'fit', 50, 50, 0.25), imageResizeRegion(1200, 800, 600, 600, 'fit'))
+  assert.deepEqual(imageResizeRegion(1200, 800, 600, 600, 'crop', 50, 50, 1), imageResizeRegion(1200, 800, 600, 600, 'crop'))
+  for (const scale of [0, -1, 0.09, 1.01, NaN, Infinity]) assert.throws(() => imageResizeRegion(1200, 800, 600, 600, 'crop', 50, 50, scale))
 })

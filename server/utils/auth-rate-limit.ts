@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { isIP } from 'node:net'
 import type { H3Event } from 'h3'
 import { createError, getRequestHeader, getRequestIP, setHeader } from 'h3'
+import { getSupabaseAdminClient } from './supabase-admin'
 
 type Bucket = { count: number; expiresAt: number }
 type Decision = { allowed: boolean; retryAfter: number }
@@ -64,13 +65,30 @@ const policies = {
   register: {limit:10,windowMs:60*60_000}
 }
 
-export function enforceAuthRateLimit(event: H3Event, scope: keyof typeof policies) {
+export async function consumeSharedAuthLimit(key:string,client:{rpc:(name:string,args:{p_key:string})=>PromiseLike<{data:unknown;error:unknown}>}=getSupabaseAdminClient()):Promise<Decision> {
+  try {
+    const {data,error}=await client.rpc('consume_auth_rate_limit',{p_key:key})
+    const row=Array.isArray(data) && data.length===1?data[0]:null
+    if(error || !row || typeof row.allowed!=='boolean' || !Number.isInteger(row.retry_after) || row.retry_after<1 || row.retry_after>3600)throw new Error('Invalid limiter response.')
+    return {allowed:row.allowed,retryAfter:row.retry_after}
+  } catch {throw createError({statusCode:503,statusMessage:'Authentication is temporarily unavailable.'})}
+}
+
+export function resolveDeploymentClientIp(peer:string|undefined,forwarded:string|undefined,trusted:string[],vercelHeader:string|undefined,onVercel:boolean) {
+  // Vercel overwrites this header. Only trust it in Vercel's own runtime.
+  if(onVercel && vercelHeader && vercelHeader.length<=64){const ip=normalizeIp(vercelHeader);if(ip)return ip}
+  return resolveAuthClientIp(peer,forwarded,trusted)
+}
+
+export async function enforceAuthRateLimit(event: H3Event, scope: keyof typeof policies) {
   const peer = getRequestIP(event,{xForwardedFor:false})
   const trusted = (process.env.AUTH_TRUSTED_PROXY_IPS ?? '').split(',').filter(Boolean)
-  const ip = resolveAuthClientIp(peer,getRequestHeader(event,'x-forwarded-for'),trusted)
+  const ip = resolveDeploymentClientIp(peer,getRequestHeader(event,'x-forwarded-for'),trusted,getRequestHeader(event,'x-vercel-forwarded-for'),process.env.VERCEL==='1')
   const identity = createHash('sha256').update(ip).digest('hex')
   const policy = policies[scope]
-  const decision = limiter.consume(`${scope}:${identity}`,policy.limit,policy.windowMs)
+  const decision = process.env.NODE_ENV==='production'
+    ? await consumeSharedAuthLimit(`${scope}:${identity}`)
+    : limiter.consume(`${scope}:${identity}`,policy.limit,policy.windowMs)
   if (!decision.allowed) {
     setHeader(event,'Retry-After',decision.retryAfter)
     setHeader(event,'Cache-Control','no-store')

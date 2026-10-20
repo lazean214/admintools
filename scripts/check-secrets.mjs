@@ -1,5 +1,5 @@
 import {execFileSync} from 'node:child_process'
-import {readFileSync,lstatSync} from 'node:fs'
+import {readFileSync,lstatSync,readdirSync,existsSync} from 'node:fs'
 import {resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
 
@@ -32,6 +32,7 @@ export function secretFindings(text,path) {
 
 export function sensitivePath(path) {
   if(/(?:^|\/)\.env\.example$/.test(path))return false
+  if(/\.(?:csv|xlsx?)$/i.test(path) && !/^tests\/fixtures\//.test(path))return true
   return /(?:^|\/)(?:\.env(?:\..*)?|\.npmrc|\.pypirc|credentials\.json|service-account[^/]*\.json|[^/]*-service-account\.json|\.vercel\/.*|\.aws\/.*|\.ssh\/.*)$|\.(?:pem|key|p12|pfx|jks|keystore|sqlite3?|db|dump|backup)$/i.test(path)
 }
 
@@ -51,6 +52,18 @@ function run() {
     try{info=lstatSync(resolve(root,path))}catch{continue}
     if(info.isFile())inspect(path,'working-tree',readFileSync(resolve(root,path)))
   }
+  if(process.argv.includes('--public-build')){
+    const publicRoot=resolve(root,'.output/public')
+    if(!existsSync(publicRoot))throw new Error('Build output is missing.')
+    const walk=directory=>{for(const entry of readdirSync(directory,{withFileTypes:true})){
+      const path=resolve(directory,entry.name)
+      if(entry.isDirectory())walk(path)
+      else if(entry.isFile())inspect('.output/public/'+path.slice(publicRoot.length+1).replaceAll('\\','/'),'public-build',readFileSync(path))
+    }}
+    walk(publicRoot)
+    const manifest=JSON.parse(readFileSync(resolve(root,'.output/server/package.json'),'utf8'))
+    for(const name of ['braces','node-forge'])if(manifest.dependencies?.[name])report('.output/server/package.json','server-build',[{rule:'development-only-vulnerable-package-in-runtime',line:1}])
+  }
   const objects=new Map()
   for(const record of git(['ls-files','--stage','-z']).toString().split('\0').filter(Boolean)){
     const [meta,path]=record.split('\t');objects.set(meta.split(' ')[1],{path,location:'index'})
@@ -64,12 +77,21 @@ function run() {
   if(ids.length){
     const metadata=git(['cat-file','--batch-check=%(objectname) %(objecttype) %(objectsize)'],ids.join('\n')+'\n').toString()
     const blobs=metadata.trim().split('\n').filter(line=>line.split(' ')[1]==='blob').map(line=>line.split(' ')[0])
-    const binary=/\.(?:pdf|wasm|png|jpe?g|gif|ico|woff2?|zip|gz)$/i
+    const binary=/\.(?:pdf|wasm|png|jpe?g|gif|ico|woff2?|zip|gz|rlib|rmeta|exe|dll|so|a|lib|o|pdb|bin)$/i
     const textBlobs=blobs.filter(id=>!binary.test(objects.get(id).path))
-    if(textBlobs.length){
-      const content=git(['cat-file','--batch'],textBlobs.join('\n')+'\n')
+    const sizes=new Map(metadata.trim().split('\n').map(line=>{const [id,,size]=line.split(' ');return [id,Number(size)]}))
+    const batches=[];let batch=[],bytes=0
+    for(const id of textBlobs){
+      const size=sizes.get(id)
+      if(size>16*1024*1024){const {path,location}=objects.get(id);report(path,location,[{rule:'oversized-file-needs-manual-review',line:1}]);continue}
+      if(bytes+size>16*1024*1024 && batch.length){batches.push(batch);batch=[];bytes=0}
+      batch.push(id);bytes+=size
+    }
+    if(batch.length)batches.push(batch)
+    for(const batch of batches){
+      const content=git(['cat-file','--batch'],batch.join('\n')+'\n')
       let offset=0
-      for(const id of textBlobs){
+      for(const id of batch){
         const end=content.indexOf(10,offset),header=content.subarray(offset,end).toString(),size=Number(header.split(' ')[2])
         if(!Number.isSafeInteger(size))throw new Error('Could not inspect a Git object.')
         const {path,location}=objects.get(id)
@@ -82,7 +104,7 @@ function run() {
     for(const item of findings)console.error(JSON.stringify(item))
     console.error('Potential secrets/private files found. Review locally; values are redacted.')
     process.exitCode=1
-  }else console.log('Secret pattern check passed for working tree, Git index'+(process.argv.includes('--history')?' and reachable history':'')+'. Heuristic scan; manually review binary assets.')
+  }else console.log('Secret pattern check passed for working tree, Git index'+(process.argv.includes('--history')?', reachable history':'')+(process.argv.includes('--public-build')?', published assets and server dependency manifest':'')+'. Heuristic scan; manually review binary assets.')
 }
 
 if(process.argv[1] && resolve(process.argv[1])===fileURLToPath(import.meta.url)){

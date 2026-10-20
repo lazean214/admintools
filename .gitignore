@@ -11,7 +11,7 @@ dist
 node_modules
 
 # Rust build products (generated browser WASM assets are versioned)
-crates/**/target/
+**/target/
 
 # Local PDF verification intermediates
 tmp/pdfs/
@@ -54,6 +54,12 @@ service-account*.json
 *.db
 *.dump
 *.backup
+*.csv
+*.xls
+*.xlsx
+!tests/fixtures/*.csv
+!tests/fixtures/*.xls
+!tests/fixtures/*.xlsx
 .impeccable/review/
 tmp/
 coverage/

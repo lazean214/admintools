@@ -166,3 +166,15 @@ export function retainUndo<T extends { data: { byteLength: number } }>(history: 
   while (history.length && bytes + entry.data.byteLength > budget) bytes -= history.shift()!.data.byteLength
   history.push(entry)
 }
+
+/** Source rectangle for an exact-size export without changing image proportions. */
+export function imageResizeRegion(width: number, height: number, requestedWidth: number, requestedHeight: number, mode: 'fit' | 'crop', positionX = 50, positionY = 50, cropScale = 1) {
+  const output = resizeDimensions(width, height, requestedWidth, requestedHeight, mode === 'fit')
+  if (mode !== 'fit' && mode !== 'crop') throw new Error('Choose fit or crop.')
+  if (![positionX, positionY].every((n) => Number.isFinite(n) && n >= 0 && n <= 100)) throw new Error('Crop position must be between 0 and 100.')
+  if (!Number.isFinite(cropScale) || cropScale < 0.1 || cropScale > 1) throw new Error('Crop size must be between 10% and 100%.')
+  const scale = Math.min(width / requestedWidth, height / requestedHeight) * cropScale
+  const sourceWidth = mode === 'crop' ? requestedWidth * scale : width
+  const sourceHeight = mode === 'crop' ? requestedHeight * scale : height
+  return { ...output, sourceWidth, sourceHeight, sourceX: Math.max(0, width - sourceWidth) * positionX / 100, sourceY: Math.max(0, height - sourceHeight) * positionY / 100 }
+}

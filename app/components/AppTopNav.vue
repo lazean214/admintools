@@ -61,7 +61,7 @@ onMounted(() => {
     $fetch<unknown[]>(guideEndpoint)
       .then((data) => {
         if (Array.isArray(data) && data.length > 0) {
-          useState('guide-prefetched-articles', () => []).value = data
+          useState<unknown[]>('guide-prefetched-articles', () => []).value = data
           hasPrefetched.value = true
         }
       })

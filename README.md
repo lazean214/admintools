@@ -1,525 +1,137 @@
 # AdminTools - Real Estate Web Tools
 
-Nuxt 4 application for real estate admin workflows, including template-based PDF generation, EJARI export, guide/article management, and document/image utilities.
+[Live application](https://admintools.vercel.app/) · [GitHub repository](https://github.com/lazean214/admintools) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md)
+
+Nuxt 4 tools for real estate documents, PDF editing, local OCR, images and a role-based article guide. Rust/WASM handles document and image processing in browser workers; authentication and stored content use server-side Supabase access.
 
 ## Features
 
-- Form I / Agent-to-Agent PDF generation using template coordinate mapping.
-- Listing NOC PDF filling using the listing NOC template.
-- EJARI form workflow with template-based PDF export (preview + download).
-- Profile settings for reusable company defaults:
-  - Logo and stamp
-  - Establishment and office details
-  - ORN, DED License, and PO Box
-- Real Estate Guide module:
-  - Markdown editor with live preview
-  - Cover image and inline markdown image support
-  - Heading-based table of contents
-  - Role-based create, edit, and delete permissions
-- Utility modules:
-  - PDF editor with supported original-text editing and selectable text export
-  - PDF image extractor
-  - Image resizer
-  - E-signature creator
-  - Watermark tool
-  - Watermark remover
-- Contact module for bug reports and feature requests via WhatsApp.
+- Form I / Agent-to-Agent, Listing NOC and EJARI template workflows.
+- PDF editor: supported original text replacement, selectable added text, images, visual signatures, shapes, highlights, links, page rotation/reordering/deletion and undo/redo.
+- English OCR: review and correct recognized lines, then reconstruct the current scanned page as actual editable PDF text.
+- PDF image extraction, image resizing, watermark placement/removal and e-signature images.
+- Saved company profile defaults and a Markdown real estate guide.
+- Viewer, editor and administrator roles; password and optional Google sign-in.
 
-## Authentication and Roles
+## Local setup
 
-- Cookie-based session authentication.
-- Database-backed users and roles.
-- Role levels:
-  - admin: user and role management, full guide access
-  - editor: create, edit, and delete guide articles
-  - viewer: read-only guide access
+Use **Node.js 24.15 or newer within the 24.x release line**, npm and Git.
 
-## Data and Storage
-
-- Supabase Postgres stores users, sessions, roles, profiles, and guide articles.
-- Apply the database schema from supabase/schema.sql before first run.
-- Session cookies use HttpOnly and SameSite=Lax.
-- Profile and guide images are stored as data URLs.
-
-## Templates and Assets
-
-- public/agent-to-agent.pdf
-- public/noc_listing_form.pdf
-- public/ejari-template.pdf
-
-## Routes
-
-- /: Home dashboard
-- /agent-to-agent-form: Form I / Agent-to-Agent form
-- /listing-noc-form: Listing NOC form
-- /ejari-form: EJARI form and PDF export
-- /real-estate-guide: Guide/article module
-- /pdf-image-extractor: PDF image extraction tool
-- /pdf-editor: Local PDF editing and page organization
-- /image-resize: Image resize tool
-- /e-signature: E-signature tool
-- /watermark: Watermark tool
-- /watermark-remover: Watermark remover tool
-- /contact: Contact and requests
-- /profile-settings: Protected profile settings
-- /login: Login
-- /register: Register
-- /pdf-template-filler: Legacy redirect to /listing-noc-form
-- /wiki: Legacy redirect to /real-estate-guide
-
-## API Overview
-
-Nuxt Nitro serves API routes in the same application process.
-
-Common endpoints:
-
-- /api/auth/login
-- /api/auth/me
-- /api/auth/users (admin)
-- /api/guide-articles
-
-## Setup
-
-1. Install dependencies:
-
-```bash
-npm install
+```sh
+npm ci --include=dev
 ```
 
-2. Create a .env file with:
+Copy `.env.example` to `.env` for local development. Fill in your own values; never commit `.env`. The existing Vercel environment variables can remain configured in Vercel.
 
-```bash
-SUPABASE_URL=your_supabase_project_url
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
-GOOGLE_CLIENT_ID=your_google_oauth_client_id
-GOOGLE_CLIENT_SECRET=your_google_oauth_client_secret
-```
+| Variable | Purpose |
+| --- | --- |
+| `SUPABASE_URL` | Supabase project URL, used by the server |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only database key; never expose through `NUXT_PUBLIC_*`, browser code or screenshots |
+| `GOOGLE_CLIENT_ID` | Optional Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | Optional server-only Google OAuth secret |
+| `AUTH_TRUSTED_PROXY_IPS` | Optional exact trusted proxy addresses for a self-hosted reverse proxy; not required for Vercel's own IP header |
 
-3. Run the SQL in supabase/schema.sql in your Supabase project.
+### Database setup and upgrades
 
-4. Configure Google OAuth redirect URIs:
+Run `supabase/schema.sql` in the Supabase SQL Editor, followed by **both migration files in order**:
 
-- Local: http://localhost:3000/api/auth/google/callback
-- Production: https://your-domain.com/api/auth/google/callback
+1. `supabase/migrations/202610190001_server_only_tables.sql`
+2. `supabase/migrations/202610190002_shared_auth_limits.sql`
 
-## Development and Build
+For an existing installation, apply both migrations before deploying the new authentication code. They do not delete application data. Production login/registration fails closed with HTTP 503 if the shared limiter is unavailable.
 
-Run dev server:
+The app uses custom cookie sessions and authorizes database operations in Nitro. These tables are server-only: RLS is enabled, public/anonymous/authenticated database grants are revoked, and the service role retains the required access. Public guide reads still go through the app API. Do not add broad public database policies to resolve configuration errors.
 
-```bash
+New accounts are viewers. Promote a reviewed account through trusted database administration or an existing app administrator. There is no default administrator password.
+
+For Google sign-in, register these exact callback paths against your chosen domains:
+
+- Local: `http://localhost:3000/api/auth/google/callback`
+- Production: `https://admintools.vercel.app/api/auth/google/callback`
+
+```sh
 npm run dev
 ```
 
-Run dev server on network:
+The normal development/build commands prepare the pinned EJARI JSON transport and self-hosted OCR assets. Generated OCR worker/core/model files live in ignored `public/ocr/v7/`; install dependencies before running `node scripts/prepare-assets.mjs` directly.
 
-```bash
-npm run dev -- --host
-```
+## Production and Vercel
 
-Create production build:
+Use Vercel's **Nuxt** framework preset, **Node 24.x**, install command `npm ci --include=dev`, and build command `npm run build`. Leave the output directory on the framework default so SSR and API routes are included. Keep production secrets in Vercel environment settings. Rust compilation is not required for a normal deployment because generated WASM files are versioned.
 
-```bash
+Before deployment, apply the SQL migrations above and run:
+
+```sh
+npm run security:secrets
+npm run audit:production
+npm test
+npm run typecheck:app
+npm run typecheck:server
+npm run typecheck:processing
 npm run build
+npm run security:bundle
 ```
 
-Preview production build:
+For a local production smoke test:
 
-```bash
-npm run preview
+```sh
+npm start
 ```
 
-Generate static output (if needed):
+After deployment, verify anonymous admin API requests return 401, signed-in users have the correct role, Google callbacks use the correct domain, and a sample PDF can render, be edited and exported. Test account-dependent flows with your own test account; the public-site checks alone do not verify authenticated database operations or confirm that migrations have been applied remotely.
 
-```bash
-npm run generate
-```
+GitHub Actions runs the repository checks with read-only permissions and pinned action revisions. Dependabot monitors npm, Cargo and GitHub Actions dependencies. The workflow does not receive production credentials or deploy the app.
 
-## Tech Stack
+## PDF editing and OCR
 
-- Nuxt 4
-- Vue 3
-- TypeScript
-- Tailwind CSS
-- Supabase
-- pdf-lib
-- pdfjs-dist
-- markdown-it
-- markdown-it-anchor
-- jszip
+Open `/pdf-editor` from Tools. Choose a document, start a blank PDF, or try the normal/scanned samples. Select supported original text to replace it using its original font. Added text uses Helvetica and stays selectable in exported PDFs. Select added layers to edit, move, resize or delete them. Use **Apply changes**, then **Download PDF**.
 
-## Rust/WASM watermark removal
+For a scan, choose **OCR / Editable page**, review/correct/exclude the recognized lines, then **Convert to editable page**. This creates real editable text objects rather than a hidden searchable overlay. Conversion replaces the selected page's scan, graphics, forms/annotations and added layers with text on a clean background. Undo restores the previous page; other pages remain intact.
 
-The watermark remover runs its FMM base fill and seeded texture synthesis in
-Rust/WASM inside a dedicated Web Worker. Vue keeps the image preview, mask
-editing, undo, and PNG downloads. The worker and WASM load on the first removal
-request. Cancel terminates the worker; the next request starts a fresh instance.
-Failures preserve the current source image and selection.
+OCR currently supports printed English, one page at a time. Layout and font matching are approximate, output uses Helvetica/WinAnsi, and unsupported characters must be corrected or excluded. Images, original fonts and complex paragraph layout are not reconstructed. Recognition runs locally with pinned Tesseract.js 7.0.0 and English data 1.0.0; PDF export uses Rust/WASM. There is no external OCR upload or Word export.
 
-Limits: 12 megapixels, 16384 pixels per side, 32 MB input files, 250000 selected
-pixels, and a 1-megapixel selection bounding box. Larger selections can be
-processed in stages. Undo snapshots share a 64 MiB budget. Computation uses a
-crop around the selection with surrounding search context; Rust accumulation
-buffers cover only the selection bounds. Download exports the clean source
-without the red selection overlay.
+Original PDF text editing depends on its font encoding and available glyphs. Nested Form XObject text, outlined text and scans cannot be edited directly. Encrypted PDFs and PDFs containing signature fields are rejected. Whiteout is a visual cover, and signature images are visual signatures; neither is secure redaction or cryptographic signing. Review exported documents before relying on their content.
 
-Rust source is in `crates/processing-wasm/`. Generated JavaScript bindings,
-TypeScript declarations, and the WASM binary in `app/wasm/processing/` are
-versioned so normal Nuxt builds do not require Rust.
+### Processing limits
 
-To change the algorithms, install Rust with a working native linker, add the
-WASM target, and install the matching binding generator:
+| Operation | Limits |
+| --- | --- |
+| Editor input | 32 MB, 100 pages, 100000 PDF objects |
+| Page content | 4 MiB decompressed, 100000 operations |
+| Edits/export | 400 edits, 500 low-level operations, 128 MB completed PDF |
+| Editor images | 8 MB/file, 12 megapixels; 16 retained assets / 64 MB |
+| OCR | 12 megapixels, 8192 pixels per side, 400 lines, 150-second worker timeout |
+| Watermark removal | 12 megapixels; 250000 selected pixels within a 1-megapixel bounding box; 64 MiB undo budget |
 
-```bash
+Browser workers are terminated on cancellation, and document sessions release their resources. PDFs and images used by these local processing tools stay in the browser. Saved profiles and guide content are intentionally sent to the application server and Supabase.
+
+The EJARI source uses generated JSON/base64 transport to avoid download managers intercepting an internal PDF request. Completed exports use explicit download links. Run `scripts/generate-ejari-template-data.mjs` after intentionally changing the pinned template and update the corresponding fixture checks.
+
+## Rust/WASM development
+
+Generated bindings and WASM in `app/wasm/` are versioned. To change Rust algorithms, install Rust with a working linker, add the WASM target and use the matching binding generator:
+
+```sh
 rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.114 --locked
 npm run build:wasm
-npm run test:processing
-npm run typecheck:processing
-npm run build
+npm test
 ```
 
-The binding-generator version must match the pinned wasm-bindgen dependency.
-Commit the regenerated assets together with Rust source changes. The build
-script also recognizes the project-local tools under the ignored `.cache/`
-directory, used during this implementation without changing the system PATH.
-Rust 1.99.1 was used for verification. Processing tests use Node 22.18+ or 24+.
+`npm run build:wasm:ejari` rebuilds only the EJARI/editor crate. The build helper recognizes ignored project-local tools under `.cache/` as well as system tools.
 
-Regression tests instantiate the real WASM binary and cover input limits,
-reconstruction, transparency, known-pixel preservation, deterministic texture
-synthesis, crop restoration, worker errors/retry/cancellation, and undo budgeting.
-Browser smoke testing should cover upload, brush/rectangle selection, removal,
-cancel/retry, undo, and download after drawing a fresh selection.
+See [Rust/WASM audit](RUST_WASM_AUDIT.md), [resize benchmarks](RESIZE_BENCHMARK.md), and [the earlier EJARI update log](changes-2026-05-07-ejari.md) for implementation history. Canvas remains the standard image resize path; the optional Rust Lanczos filter is a quality choice, not a blanket performance claim.
 
-## Resize filters and PDF extraction
+## Security and dependency status
 
-Image resizing keeps the existing Canvas implementation as the **Standard**
-default. The **Lanczos** option uses Rust/WASM in the processing worker with
-alpha-aware filtering. This is an explicit filter choice, not a speed claim:
-the measured full pipeline was slower than Canvas on the synthetic desktop
-fixtures. See [RESIZE_BENCHMARK.md](RESIZE_BENCHMARK.md) for timings, limitations,
-and the local `npm run benchmark:resize` workflow.
+Read [SECURITY.md](SECURITY.md) before publishing or deploying. The secret check scans the working tree, index and reachable Git history and prints locations/rule names without secret values. It is a heuristic, not proof that every credential or personal detail has been identified. Manually review PDFs, screenshots and other binary assets before publishing them.
 
-Resizing supports cancellation before download and processes previews and exports
-sequentially. Input and output sizes are limited to 12 megapixels and 16384 pixels
-per side. Batches allow up to 32 files, 32 MB each and 128 MB total; outputs are
-also capped at 128 MB. Extreme Lanczos aspect-ratio changes are rejected to bound
-intermediate allocation. ZIP names are unique even when source basenames repeat.
+`npm run audit:production` checks production dependencies and currently reports zero advisories. The full development dependency audit still reports two unpatched upstream advisories propagated through the build tools: `braces` 3.0.3 and `node-forge` 1.4.0. Nuxt/Tailwind and type/test tools are development dependencies; the release bundle check also rejects these two packages if they appear in the deployed server dependency list. This distinction does not make the development advisories disappear. Use trusted build inputs and monitor upstream fixes; do not use `npm audit fix --force` to downgrade the framework indiscriminately.
 
-PDF extraction retains PDF.js and bundles its matching worker locally. It handles
-packed monochrome, RGB, RGBA, and bitmap images, and crops grouped inline atlas
-regions into individual exports. Documents/pages and partial preview URLs are
-cleaned up on completion, errors, and navigation. Limits are 64 MB per PDF,
-12 megapixels per decoded image, 500 exports and 128 MB of encoded results.
-This tool extracts decoded images; it does not preserve their original PDF stream
-encoding or apply page placement transforms to the exported pixels.
+The shared production limiter enforces 30 login attempts per 15 minutes and 10 registration attempts per hour per hashed client address across instances. Local development retains bounded in-process throttling. Vercel's overwritten client-IP header is trusted only in Vercel's runtime; self-hosted proxies require an explicit trust list. Database failures fail closed. This is not a substitute for an edge firewall against volumetric abuse.
 
-Run `node scripts/create-processing-fixtures.mjs` to generate synthetic browser
-fixtures under `.cache/tools/`. The PDF contains twelve inline color images and
-one packed monochrome image; extraction should produce thirteen previews.
+## Main routes
 
-## Watermark background export
+`/agent-to-agent-form`, `/listing-noc-form`, `/ejari-form`, `/pdf-editor`, `/pdf-image-extractor`, `/image-resize`, `/e-signature`, `/watermark`, `/watermark-remover`, `/real-estate-guide`, `/profile-settings`, `/login`, `/register`, `/contact`.
 
-Watermarking supports **Background** and **Standard** export modes. Supporting
-browsers default to Background: a worker decodes each input, Rust performs
-straight-alpha source-over composition, and OffscreenCanvas encodes the PNG.
-Canvas still renders the text/image stamp using the browser's fonts and scaling.
-Standard uses Canvas composition on the page and is available for unsupported
-browser decoders or worker APIs. No export speed improvement is claimed.
-
-Preview and both export modes share stamp layout and integer placement. Browser
-font loading completes before export. Alpha composition may differ slightly from
-Canvas's internal premultiplied-byte rounding: the six synthetic browser cases
-passed a tolerance of one alpha level and three premultiplied color levels out
-of 255. Outputs should not be expected to be byte-identical across modes/browsers.
-
-Batch watermarking now prevents duplicate starts, snapshots settings, supports
-cancel/retry, and retains every image when input basenames repeat. Thumbnail
-object URLs and worker resources are released on replacement/navigation. Limits
-match resizing: 32 images, 32 MB each, 128 MB per batch/output, and 12 megapixels
-per image/stamp. Cancellation discards the batch before download; completed
-output remains a ZIP of PNGs.
-
-To reproduce the production-worker check without uploading any files:
-
-```sh
-npm run build:wasm
-npm run build
-npm run benchmark:resize
-```
-
-Open `http://127.0.0.1:3210/watermark` and click **Run verification**. It uses the
-built worker at its production asset path, synthetic text/image stamps, PNG
-encoding, Canvas comparison, and cancellation/retry cases. The server is local
-to this machine. The existing resize benchmark remains at `/`.
-
-## Rust PDF packaging for Form I and Listing NOC
-
-Form I and Listing NOC keep their Canvas layouts and now send the completed
-RGBA raster to the processing worker. Rust flattens transparency onto white,
-compresses RGB samples with pinned miniz_oxide 0.8.9, and writes a single-page
-PDF 1.4 with an image XObject and classic cross-reference table. These routes
-no longer encode a PNG only to decode it again through pdf-lib. Text remains
-rasterized, matching the established form output. EJARI uses the separate Rust
-template exporter described below.
-
-Each export snapshots the form, selected assets, and theme. Cancellation or
-navigation prevents the completed file from opening/downloading. Worker
-compression can be terminated immediately; browser layout/drawing and an asset
-load already in progress finish before their cancellation check. Rendering
-canvases are released in finally blocks. Input is limited to 12 megapixels and
-16384 pixels per side, with page sizes between 1 and 14400 PDF points.
-
-Verification covers PDF structure/xref offsets, independent pdf-lib parsing,
-lossless RGB decompression, white alpha flattening, page limits, and worker
-transport/cancellation. Browser-generated Form I and Listing NOC samples were
-reopened with pypdf and rendered with Poppler at 144 dpi: each was one A4 page
-(595.275591 Ã— 841.889764 points). Each render was pixel-identical to pdf-lib
-packaging of the same source raster. This verifies packaging/orientation, not a
-new layout engine, editable fields, PDF/A conformance, or template support.
-
-`npm run typecheck:processing` now checks the two PDF forms as well as the image
-tools. It reports authentication/server diagnostics pulled in through Nuxt's
-generated globals separately; it does not claim the entire repository type-checks.
-
-Implementation references:
-- [PDF 1.7 / ISO 32000-1 reference](https://developer.adobe.com/document-services/docs/assets/35e4369068f86065372c18787171a17e/PDF_ISO_32000-1.pdf), image XObjects and file structure.
-- [miniz_oxide 0.8.9](https://docs.rs/crate/miniz_oxide/0.8.9), zlib-wrapped compression.
-
-## Rust EJARI template export
-
-`crates/ejari-pdf-wasm` uses pinned lopdf 0.44.0 in a separate lazy worker.
-The UI uses a compatibility export: PDF.js renders the three-page US Letter
-template (612 Ã— 792 points) at 144 dpi, Canvas draws the captured values onto
-those same pages, and Rust packages the resulting RGB images losslessly into
-a new three-page PDF 1.4. Values and artwork are part of one page image, so
-readers do not need to render an appended text layer. Exported text is no
-longer selectable. Existing template artwork remains visually rendered, rather
-than preserved as its original PDF objects. The 743313-byte WASM module loads
-only when exporting EJARI, independently of the image worker. PDF.js is also
-loaded lazily, with its matching self-hosted worker.
-The component no longer imports pdf-lib. Helvetica/WinAnsi metrics generated
-from MIT-licensed @pdf-lib/standard-fonts 1.0.0 preserve existing truncation,
-kerning measurements, dates, amounts, coordinates, and usage checkmarks.
-Browser text uses Arial/Helvetica. The prior vector exporter remains available
-to regression tests, with hexadecimal text encoding and isolated graphics state.
-
-The exporter accepts only the checked-in template's SHA-256 and rejects
-changed templates before parsing. Template input is limited to 2 MB; the vector
-reference limits eager stream decompression to 32 MiB per stream. Its overlays
-are limited to 64 fields, 1024
-bytes per field, and 64 KiB total, with finite bounded coordinates. Unsupported
-characters produce a field-specific error. Existing Arabic artwork remains
-intact; entering Arabic values requires a future embedded-font/shaping change.
-Compatibility packaging accepts exactly three 1224 Ã— 1584 RGBA pages (about
-23.3 MB), converts alpha to white, and compresses one page at a time. Browser
-rendering is sequential, with the canvas released and PDF.js task destroyed
-after rendering or cancellation. Export snapshots values, guards duplicate starts, aborts template fetching on
-cancellation, terminates worker processing, and prevents downloads after
-cancellation/navigation. Retrying creates a fresh worker. The completed result
-shows its `ejari-filled-...pdf` filename with explicit preview/download links.
-Its object URL stays valid until the next successful export or navigation;
-the blank source template is not the completed download. Preview opens only
-when its link is clicked, avoiding an asynchronous automatic popup.
-
-```sh
-npm run build:wasm:ejari
-npm run test:ejari
-python scripts/verify-ejari-render.py --poppler-dir /path/to/poppler/bin
-```
-
-The test writes `.cache/ejari-proof/roundtrip.pdf` for the render comparison.
-Eight tests cover all three pages, geometry/rotation, resource references,
-existing stream bytes, WinAnsi encoding, text fitting, malformed overlays,
-template rejection, and worker transport/cancellation/retry. Poppler renders
-were pixel-identical at 144 dpi for the blank roundtrip and filled reference
-outputs for Residential, Commercial and Industrial (12 page comparisons,
-1224 Ã— 1584 pixels each). Fixtures include accented Latin text, long names,
-dates, amounts, and all five additional terms. The raster packaging test checks
-all three page images, ordering, dimensions, white flattening and invalid input.
-No speed improvement is claimed.
-
-To verify the built worker in a browser, run `npm run build` followed by
-`npm run benchmark:resize`, open `http://127.0.0.1:3210/ejari`, and click
-**Run verification**. Four production-worker checks passed: PDF export,
-modified-template rejection, cancellation, and fresh-worker retry. This local
-harness uses synthetic values and the public template. The processing type
-check includes EJARI and both workers; existing authentication/server type
-diagnostics are reported separately. `npm run build:wasm` rebuilds both crates;
-`build:wasm:ejari` rebuilds only the template engine.
-
-The application loads its source template as base64 JSON from
-`/ejari-template-data.json`, then decodes and verifies it locally. It makes no
-request to `/ejari-template.pdf` during export. This prevents PDF download
-extensions such as IDM from capturing the blank source request before values
-are added. The original PDF stays available as a source asset. Regenerate the
-JSON with `node scripts/generate-ejari-template-data.mjs` after replacing that
-asset; npm's prebuild/predev/pregenerate scripts also regenerate it. A regression
-test verifies byte-for-byte equivalence, the non-PDF request path, cancellation
-signal forwarding, and malformed/failed responses. The final filled PDF still
-downloads from its locally generated Blob URL.
-
-Click **Run compatibility verification** on the same harness to test the UI's
-rendering helper and production raster worker without opening a PDF preview.
-Seven checks passed: three pages; every pixel of all three pages survived PDF
-packaging and PDF.js decoding; the owner, tenant and page-three term regions
-contained visible changes from the blank template. This verifies the generated
-PDF bytes and rendered values, independent of the download filename.
-
-## Authentication processing and input validation
-
-Password hashing and verification now use asynchronous Node scrypt, keeping
-CPU work off the event loop. Parameters, salt representation and stored hex
-format match the previous scryptSync implementation: existing accounts remain
-compatible without a password reset. OAuth-created accounts use the same async
-helper. Timing-safe hash comparison remains in place; unknown email addresses
-also perform a derivation before returning the same invalid-credentials error.
-This does not claim constant-time database queries.
-
-Login/registration services validate unknown payloads before database access.
-They require an object with string credentials, normalize email casing/outer
-whitespace, reject malformed email addresses, cap email at 320 characters,
-registration name at 200 characters, and password at 4096 UTF-8 bytes. Password
-whitespace and Unicode bytes remain unchanged. Registration keeps its existing
-six-character minimum. These field limits run after the bounded JSON reader
-described below.
-
-`npm run test:auth` checks legacy hash compatibility, random salts, wrong
-passwords, malformed stored credentials, identity normalization, Unicode byte
-limits and service validation before database access. Tests use synthetic
-credentials and make no database calls. `npm run typecheck:server` checks the
-full server against Nuxt's generated configuration (run Nuxt prepare/build first).
-The shared Supabase cache now captures its configured factory's concrete type,
-avoiding erased generic defaults that previously made table writes type `never`.
-
-Login and registration now apply per-process rate limits before reading the
-body or accessing the database: 30 login attempts per 15 minutes and 10
-registration attempts per hour, per client address. All attempts count,
-including malformed requests and successes. Exhausted budgets return HTTP 429,
-`Retry-After` in seconds and `Cache-Control: no-store`. Login and registration
-have separate budgets; expiry restores access without background timers.
-
-The limiter holds at most 10000 hashed address/scope keys and periodically
-removes expired entries. It rejects new identities when full instead of evicting
-active budgets, so filling the map cannot reset an existing caller's limit.
-No passwords or email addresses are retained by the limiter.
-
-By default the limiter uses the server-observed client address and ignores
-`X-Forwarded-For`. Behind a reverse proxy, configure `AUTH_TRUSTED_PROXY_IPS`
-with a comma-separated list of exact proxy addresses that you control. The
-server walks the forwarded chain from right to left through trusted hops and
-stops at the first untrusted address. Do not list arbitrary client addresses.
-The proxy must replace/append the actual connecting address correctly. Without
-this configuration, requests through one proxy share its address budget.
-
-Limits are local to one running process and reset on restart; multiple instances
-need a shared limiter or gateway policy. This bounds local authentication work
-but is not distributed brute-force protection. Tests cover exact admission
-budgets, expiry, scope/client isolation, capacity exhaustion, IPv4-mapped peers,
-and spoofed/malformed forwarded chains.
-
-The Node-server login and registration routes accept only `application/json`
-with no content compression. Before parsing JSON, a shared reader rejects
-declared bodies larger than 32 KiB and counts actual bytes as they arrive, so
-chunked bodies have the same cap. Oversized uploads return HTTP 413, unsupported
-content types/encodings return 415, malformed JSON/UTF-8 returns 400, and an
-incomplete body returns 408 after a 10-second absolute deadline. Error responses
-close rejected upload connections after the response is flushed. The reader
-releases its buffer references, listeners and deadline timer on completion,
-failure or client abort. Rate limits still run first.
-
-`npm run test:auth` includes real local HTTP tests for exact-limit bodies,
-chunked and declared oversized uploads, UTF-8 credential preservation,
-unsupported media types/compression, timeouts, aborted connections and recovery.
-These reader limits target the configured Node server; deployments should also
-apply their gateway's request-size/time limits before data reaches the app.
-
-## PDF editor
-
-Open /pdf-editor from the Tools menu or dashboard. Its document-first toolbar
-is inspired by Sejda's editor workflow, with this application's styling and local
-browser processing. Open a PDF, start a blank A4 document, or try the explicitly
-labeled two-page sample.
-
-Implemented tools:
-- Edit supported existing text runs in their original font. Rust rewrites the
-  selected text-showing operation; replacement text remains selectable. It does
-  not paint a white rectangle over the original text. Unsupported replacement
-  glyphs produce an error rather than silently dropping characters.
-- Add selectable Helvetica text with size, color, bold, placement, multiline
-  content, dragging and resizing.
-- Recognize English text on the current page, review/edit/exclude recognized
-  lines, then convert that page into editable PDF text layers.
-- Add PNG/JPEG/WebP images, replace/remove direct page image XObjects at their
-  original placement, and add typed or drawn visual signature images.
-- Add whiteout, highlights, rectangles, ellipses, lines, freehand drawings and
-  external HTTP/HTTPS/mailto link regions.
-- Reorder, rotate or remove pages; undo/redo up to 40 snapshots; zoom; and apply
-  changes to prepare an explicit completed-PDF download.
-
-PDF.js renders previews with its matching self-hosted worker. A dedicated editor
-worker uses the pinned lopdf Rust/WASM engine to inspect/edit/save the PDF. Page
-content and resource dictionaries are cloned before modification, so editing
-shared streams/fonts/images does not accidentally change other pages. Export
-keeps PDF vector/text objects rather than rasterizing the document. Worker
-buffers are transferred; cancellation and navigation terminate pending work.
-The source, assets, history and completed Blob URL are kept locally for the
-session and released on replacement/navigation.
-
-Limits: source PDFs up to 32 MB / 100 pages / 100000 objects, page content up to
-4 MiB decompressed / 100000 operations, at most 400 user edits and 500 low-level
-operations per export. Images are limited to 8 MB per file / 12 megapixels;
-retained image assets to 16 / 64 MB. Completed PDFs are capped at 128 MB.
-
-Original text editing is limited by the PDF's font encodings and available
-glyphs. Text drawn inside nested Form XObjects, outlines and scans is not offered
-as directly editable text. Scans can use the OCR conversion below; full
-paragraph reflow is not included. Replacement
-keeps original position/size, so longer text should be checked for overlap.
-Added text supports Latin and WinAnsi symbols. This version does not include
-Sejda's complete interactive form-authoring feature set, font replacement,
-cloud integrations, attachments or digital signing. PDFs with signature fields
-and encrypted PDFs are rejected. Whiteout, image removal and page organization
-are not secure-redaction tools. Existing PDF metadata/bookmark/form behavior
-outside the tested edits is not a claim of full PDF-feature compatibility.
-
-Run npm run test:pdf-editor for Rust/WASM and client tests. Fixtures verify
-original-text replacement, selectable added text, shared stream isolation,
-image replacement/transparency, page ordering/rotation/deletion, unsafe link
-rejection, malformed edits, starter PDFs and cancellation/retry. The generated
-.cache/pdf-editor-proof/edited.pdf was reopened with pypdf: the replacement and
-added text extracted correctly, the original string was absent, and the link
-annotation remained. Poppler rendering verified text, transparency and shapes.
-Browser checks exercised original-text replacement, text-layer insertion/style,
-signature drawing and preparation of a completed PDF. The processing type check
-includes the editor component, composable and worker.
-
-### English OCR to editable PDF
-
-Choose **OCR / Editable page** on the current page, review the recognized lines and
-correct or exclude them, then choose **Convert to editable page**. Conversion
-reconstructs that page with selectable, editable Helvetica/WinAnsi text at
-approximate recognized positions. It removes the page's original scanned image,
-graphics, annotations/forms and previously added layers. Other pages remain
-unchanged. Undo restores the previous page, including its scan. This produces an
-editable PDF; it does not export Word or place a hidden searchable text overlay
-over the retained scan. Review recognition and layout before exporting.
-
-OCR runs locally using the self-hosted Tesseract.js 7.0.0 worker and its C++ WASM
-engine, with English data pinned to @tesseract.js-data/eng 1.0.0. The worker,
-WASM and model files are generated into ignored public/ocr/v7/ by
-scripts/prepare-assets.mjs during predev/prebuild/pregenerate. Normal npm dev and
-build commands prepare these assets; recognition makes no external OCR request.
-The native-worker adapter follows the pinned version-7 protocol so Cancel can
-terminate model initialization as well as recognition.
-
-Recognition handles one English page at a time, with a raster capped at 12
-megapixels and 8192 pixels per side, up to 400 recognized lines, and a 150-second
-worker timeout. Unsupported WinAnsi characters are excluded initially and must
-be corrected or excluded before conversion. Original fonts, exact layout,
-graphics and full paragraph reflow are not reconstructed.
-
-Run `npm run test:pdf-ocr` for line mapping, review/rebuild, worker cancellation
-and real English OCR coverage. OCR verification also covers exported-PDF reopen
-and a second text edit; local pypdf extraction confirmed recognized text without
-a retained scan image. Use `npm run test:pdf-editor` for the PDF engine and
-shared editing regressions.
+Protected operations are enforced by API authorization, not only page middleware. Sessions use HttpOnly, SameSite=Lax cookies with Secure enabled in production. Authentication JSON bodies have a 32 KiB limit and a 10-second read deadline.
