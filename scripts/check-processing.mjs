@@ -6,7 +6,7 @@ import { resolve } from 'node:path'
 const root = resolve(import.meta.dirname, '..')
 const virtual = new Map()
 const normalize = (path) => path.replaceAll('\\', '/')
-for (const name of ['WatermarkRemoverModule', 'ImageResizeModule', 'PdfImageExtractorModule', 'WatermarkModule', 'AgentToAgentFormModule', 'PdfTemplateFillerModule', 'EjariFormModule', 'PdfEditorModule']) {
+for (const name of ['WatermarkRemoverModule', 'ImageResizeModule', 'PdfCompressionModule', 'PdfImageExtractorModule', 'WatermarkModule', 'AgentToAgentFormModule', 'PdfTemplateFillerModule', 'EjariFormModule', 'PdfEditorModule']) {
   const path = resolve(root, 'app/components/' + name + '.vue')
   const { descriptor, errors } = parse(readFileSync(path, 'utf8'))
   const script = compileScript(descriptor, { id: name })
@@ -25,7 +25,7 @@ host.getSourceFile = (file, version, ...rest) => virtual.has(normalize(file))
   ? ts.createSourceFile(file, virtual.get(normalize(file)), version, true)
   : original(file, version, ...rest)
 const program = ts.createProgram([
-  ...virtual.keys(), resolve(root, '.nuxt/nuxt.d.ts'), resolve(root, 'app/types/assets.d.ts'), resolve(root, 'app/workers/processing.worker.ts'), resolve(root, 'app/workers/ejari.worker.ts'), resolve(root, 'app/workers/pdf-editor.worker.ts')
+  ...virtual.keys(), resolve(root, '.nuxt/nuxt.d.ts'), resolve(root, 'app/types/assets.d.ts'), resolve(root, 'app/workers/processing.worker.ts'), resolve(root, 'app/workers/pdf-compression.worker.ts'), resolve(root, 'app/workers/ejari.worker.ts'), resolve(root, 'app/workers/pdf-editor.worker.ts')
 ], { ...config.options, noEmit: true }, host)
 const allErrors = ts.getPreEmitDiagnostics(program).filter((d) => d.category === ts.DiagnosticCategory.Error)
 // Nuxt globals bring in typed API routes and the existing authentication module.

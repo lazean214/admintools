@@ -64,6 +64,13 @@ const baseModules = [
     icon: 'M12 20h9M16.5 3.5a2.12 2.12 0 013 3L9 17l-4 1 1-4L16.5 3.5z'
   },
   {
+    title: 'PDF Compression',
+    description: 'Reduce PDF file size locally, preserve selectable text, and compare before and after sizes.',
+    path: '/pdf-compression',
+    action: 'Open PDF Compressor',
+    icon: 'M9 12h6m-6 4h6M9 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V9l-6-6H9zm4 0v6h6'
+  },
+  {
     title: 'Image Resize',
     description: 'Resize one or many images while keeping aspect ratio and previewing files first.',
     path: '/image-resize',

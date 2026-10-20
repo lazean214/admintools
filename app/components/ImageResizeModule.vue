@@ -2,8 +2,9 @@
 import JSZip from 'jszip'
 import { ProcessingClient, ProcessingCancelledError } from '../utils/processing-client'
 import { imageResizeRegion, validateDimensions } from '../utils/processing'
+import { encodeImageWithinSize, imageUpscaleFactor, orientedImageSize, rotateImageOrientation, parseImageResizePresets, validateImageResizeSettings, IMAGE_PRESET_STORAGE_KEY, type ImageResizeSettings, type SavedImagePreset } from '../utils/image-resize'
 
-type ResizePreviewImage = { id: string; name: string; previewUrl: string; width: number; height: number; sizeKb: number; cropX: number; cropY: number; cropScale: number }
+type ResizePreviewImage = { id: string; name: string; previewUrl: string; width: number; height: number; sizeKb: number; cropX: number; cropY: number; cropScale: number; originalWidth: number; originalHeight: number; rotation: number; flipX: boolean; flipY: boolean }
 const status = ref('Ready')
 const resizeFiles = ref<File[]>([])
 const resizeWidth = ref(1920)
@@ -34,14 +35,88 @@ function outputSize(image: ResizePreviewImage) {
 const resizeFormat = ref<'original' | 'png' | 'jpg' | 'webp'>('original')
 const resizeMethod = ref<'standard' | 'lanczos'>('standard')
 const resizeQuality = ref(90)
+const targetSizeKb = ref(0)
+const savedPresets = ref<SavedImagePreset[]>([])
+const presetName = ref('')
+const selectedSavedPreset = ref('')
+const settingsError = computed(() => {
+  try { validateImageResizeSettings(currentSettings()); return '' } catch (error) { return error instanceof Error ? error.message : 'Check output settings.' }
+})
+function currentSettings(): ImageResizeSettings {
+  return { width: resizeWidth.value, height: resizeHeight.value, mode: resizeMode.value, format: resizeFormat.value, quality: resizeQuality.value, method: resizeMethod.value, targetKb: Number(targetSizeKb.value) }
+}
+function persistPresets(next: SavedImagePreset[]) {
+  try { localStorage.setItem(IMAGE_PRESET_STORAGE_KEY, JSON.stringify(next)); savedPresets.value = next; return true }
+  catch { setStatus('Could not save presets. Browser storage may be unavailable or full.'); return false }
+}
+function savePreset() {
+  const name = presetName.value.trim()
+  if (!name || name.length > 60) { setStatus('Enter a preset name from 1 to 60 characters.'); return }
+  if (settingsError.value) { setStatus(settingsError.value); return }
+  if (savedPresets.value.length >= 20 && !savedPresets.value.some((p) => p.name === name)) { setStatus('You can save up to 20 presets. Remove one first.'); return }
+  const next = [...savedPresets.value.filter((p) => p.name !== name), { ...currentSettings(), name }]
+  if (persistPresets(next)) { selectedSavedPreset.value = name; setStatus('Saved preset “' + name + '” on this browser.'); }
+}
+function loadPreset() {
+  const p = savedPresets.value.find((p) => p.name === selectedSavedPreset.value)
+  if (!p) return
+  resizeWidth.value = p.width; resizeHeight.value = p.height; resizeMode.value = p.mode
+  resizeFormat.value = p.format; resizeQuality.value = p.quality; resizeMethod.value = p.method; targetSizeKb.value = p.targetKb
+  presetName.value = p.name
+  setStatus('Loaded preset “' + p.name + '”.')
+}
+function deletePreset() {
+  const name = selectedSavedPreset.value
+  if (persistPresets(savedPresets.value.filter((p) => p.name !== name))) { selectedSavedPreset.value = ''; setStatus('Removed preset “' + name + '”.') }
+}
+onMounted(() => {
+  try { savedPresets.value = parseImageResizePresets(localStorage.getItem(IMAGE_PRESET_STORAGE_KEY) || '[]') }
+  catch { setStatus('Saved presets could not be read. You can still resize images.'); }
+})
 const resizeBusy = ref(false)
 const resizeLoading = ref(false)
 const resizePreviews = ref<ResizePreviewImage[]>([])
 const processor = new ProcessingClient(() => new Worker(new URL('../workers/processing.worker.ts', import.meta.url), { type: 'module' }))
+const previewProcessor = new ProcessingClient(() => new Worker(new URL('../workers/processing.worker.ts', import.meta.url), { type: 'module' }))
+type OutputPreview = { signature: string; url?: string; blob?: Blob; width?: number; height?: number; quality?: number; targetMet?: boolean; error?: string }
+const outputPreviews = ref<Record<string, OutputPreview>>({})
+const previewBusy = ref(false)
+let previewGeneration = 0
+let previewTimer: ReturnType<typeof setTimeout> | undefined
+let previewQueue: Promise<void> = Promise.resolve()
 let generation = 0
 let disposed = false
 let cancelled = false
 
+function editorImageStyle(image: ResizePreviewImage) {
+  const quarterTurn = image.rotation % 180 !== 0
+  return {
+    width: (quarterTurn ? image.height / image.width * 100 : 100) + '%',
+    height: (quarterTurn ? image.width / image.height * 100 : 100) + '%',
+    transform: 'translate(-50%, -50%) scale(' + (image.flipX ? -1 : 1) + ', ' + (image.flipY ? -1 : 1) + ') rotate(' + image.rotation + 'deg)',
+  }
+}
+function orientImage(image: ResizePreviewImage, action: 'left' | 'right' | 'flipX' | 'flipY') {
+  if (resizeBusy.value || resizeLoading.value) return
+  if (action === 'left' || action === 'right') {
+    Object.assign(image, rotateImageOrientation(image.rotation, image.flipX, image.flipY, action))
+    Object.assign(image, orientedImageSize(image.originalWidth, image.originalHeight, image.rotation))
+  } else image[action] = !image[action]
+  resetCrop(image)
+}
+function upscaleWarning(image: ResizePreviewImage) {
+  if (settingsError.value) return ''
+  const scale = imageUpscaleFactor(image.width, image.height, currentSettings(), image.cropX, image.cropY, image.cropScale)
+  return scale > 1.001 ? 'Upscaling ' + scale.toFixed(1) + '×. This crop may look soft at the requested resolution.' : ''
+}
+function formatBytes(bytes: number) { return bytes < 1024 * 1024 ? (bytes / 1024).toFixed(1) + ' KB' : (bytes / (1024 * 1024)).toFixed(2) + ' MB' }
+function sizeDifference(image: ResizePreviewImage) {
+  const blob = outputPreviews.value[image.id]?.blob
+  const original = resizeFiles.value[Number(image.id)]?.size
+  if (!blob || !original) return ''
+  const percent = (blob.size / original - 1) * 100
+  return Math.abs(percent).toFixed(1) + '% ' + (percent <= 0 ? 'smaller' : 'larger')
+}
 function cropBoxStyle(image: ResizePreviewImage) {
   const region = imageResizeRegion(image.width, image.height, resizeWidth.value, resizeHeight.value, 'crop', image.cropX, image.cropY, image.cropScale)
   return { left: region.sourceX / image.width * 100 + '%', top: region.sourceY / image.height * 100 + '%', width: region.sourceWidth / image.width * 100 + '%', height: region.sourceHeight / image.height * 100 + '%' }
@@ -164,7 +239,7 @@ async function onResizeFilesChange(event: Event) {
       const image = await readImage(file)
       if (disposed || generation !== current) return
       validateDimensions(image.width, image.height)
-      previews.push({ id: String(index), name: file.name, previewUrl: URL.createObjectURL(file), width: image.width, height: image.height, sizeKb: Math.max(1, Math.round(file.size / 1024)), cropX: 50, cropY: 50, cropScale: 1 })
+      previews.push({ id: String(index), name: file.name, previewUrl: URL.createObjectURL(file), width: image.width, height: image.height, sizeKb: Math.max(1, Math.round(file.size / 1024)), cropX: 50, cropY: 50, cropScale: 1, originalWidth: image.width, originalHeight: image.height, rotation: 0, flipX: false, flipY: false })
     }
     resizePreviews.value = previews
     published = true
@@ -187,59 +262,140 @@ function cancelResize() {
   processor.cancel()
   setStatus('Cancelling…')
 }
+function outputSignature(image: ResizePreviewImage, settings = currentSettings()) {
+  return JSON.stringify([generation, image.id, image.cropX, image.cropY, image.cropScale, image.rotation, image.flipX, image.flipY, settings])
+}
+async function renderImageOutput(file: File, edit: ResizePreviewImage, settings: ImageResizeSettings, client: ProcessingClient, check: () => void) {
+  validateImageResizeSettings(settings)
+  check()
+  const image = await readImage(file)
+  check()
+  const oriented = document.createElement('canvas'), canvas = document.createElement('canvas')
+  try {
+    const dimensions = orientedImageSize(image.naturalWidth, image.naturalHeight, edit.rotation)
+    oriented.width = dimensions.width; oriented.height = dimensions.height
+    const orientation = oriented.getContext('2d')
+    if (!orientation) throw new Error('Could not create the orientation canvas.')
+    orientation.translate(oriented.width / 2, oriented.height / 2)
+    orientation.scale(edit.flipX ? -1 : 1, edit.flipY ? -1 : 1)
+    orientation.rotate(edit.rotation * Math.PI / 180)
+    orientation.drawImage(image, -image.naturalWidth / 2, -image.naturalHeight / 2)
+    const r = imageResizeRegion(oriented.width, oriented.height, settings.width, settings.height, settings.mode, edit.cropX, edit.cropY, edit.cropScale)
+    canvas.width = r.targetWidth; canvas.height = r.targetHeight
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('Could not create the output canvas.')
+    if (settings.method === 'lanczos') {
+      const source = document.createElement('canvas')
+      try {
+        source.width = Math.max(1, Math.round(r.sourceWidth)); source.height = Math.max(1, Math.round(r.sourceHeight))
+        const pixels = source.getContext('2d', { willReadFrequently: true })
+        if (!pixels) throw new Error('Could not read the image pixels.')
+        pixels.drawImage(oriented, r.sourceX, r.sourceY, r.sourceWidth, r.sourceHeight, 0, 0, source.width, source.height)
+        const rgba = pixels.getImageData(0, 0, source.width, source.height).data.buffer as ArrayBuffer
+        const result = await client.resize({ rgba, width: source.width, height: source.height, targetWidth: r.targetWidth, targetHeight: r.targetHeight })
+        check()
+        context.putImageData(new ImageData(new Uint8ClampedArray(result), r.targetWidth, r.targetHeight), 0, 0)
+      } finally { source.width = source.height = 0 }
+    } else context.drawImage(oriented, r.sourceX, r.sourceY, r.sourceWidth, r.sourceHeight, 0, 0, r.targetWidth, r.targetHeight)
+    const extension = settings.format === 'original' ? file.name.split('.').pop()?.toLowerCase() : settings.format
+    const mime = extension === 'jpg' || extension === 'jpeg' ? 'image/jpeg' : extension === 'webp' ? 'image/webp' : 'image/png'
+    if (mime === 'image/jpeg') {
+      context.globalCompositeOperation = 'destination-over'; context.fillStyle = '#ffffff'; context.fillRect(0, 0, canvas.width, canvas.height)
+    }
+    const result = await encodeImageWithinSize((quality) => canvasToBlob(canvas, mime, mime === 'image/png' ? 1 : quality), settings.quality / 100, settings.targetKb * 1024, check)
+    return { ...result, width: r.targetWidth, height: r.targetHeight }
+  } finally { oriented.width = oriented.height = canvas.width = canvas.height = 0 }
+}
+function stopPreviewWork() {
+  previewGeneration++
+  clearTimeout(previewTimer)
+  previewProcessor.cancel()
+  previewBusy.value = false
+}
+function clearOutputPreviews() {
+  for (const item of Object.values(outputPreviews.value)) if (item.url) URL.revokeObjectURL(item.url)
+  outputPreviews.value = {}
+}
+function schedulePreviews() {
+  stopPreviewWork()
+  if (disposed || resizeBusy.value || resizeLoading.value || settingsError.value || !resizePreviews.value.length) return
+  const version = previewGeneration
+  previewBusy.value = true
+  previewTimer = setTimeout(() => {
+    previewQueue = previewQueue.catch(() => {}).then(async () => {
+      const check = () => { if (disposed || previewGeneration !== version || resizeBusy.value) throw new ProcessingCancelledError() }
+      // Reserve space for every retained preview, including images later in the loop.
+      let bytes = Object.values(outputPreviews.value).reduce((sum, output) => sum + (output.blob?.size || 0), 0)
+      try {
+        const settings = currentSettings()
+        for (const image of resizePreviews.value) {
+          check()
+          const signature = outputSignature(image, settings)
+          const existing = outputPreviews.value[image.id]
+          if (existing?.blob && existing.signature === signature) continue
+          try {
+            const file = resizeFiles.value[Number(image.id)]!
+            const result = await renderImageOutput(file, { ...image }, settings, previewProcessor, check)
+            check()
+            const nextBytes = bytes - (existing?.blob?.size || 0) + result.blob.size
+            if (nextBytes > 128 * 1024 * 1024) throw new Error('Preview outputs exceed 128 MB. Select fewer images or reduce dimensions.')
+            bytes = nextBytes
+            if (existing?.url) URL.revokeObjectURL(existing.url)
+            outputPreviews.value[image.id] = { ...result, signature, url: URL.createObjectURL(result.blob) }
+          } catch (error) {
+            check()
+            outputPreviews.value[image.id] = { signature, error: error instanceof Error ? error.message : 'Preview failed.' }
+          }
+        }
+      } catch (error) {
+        if (!(error instanceof ProcessingCancelledError) && !disposed) setStatus('Could not generate output previews.')
+      } finally { if (previewGeneration === version) previewBusy.value = false }
+    })
+  }, 350)
+}
+watch(() => JSON.stringify([resizeLoading.value, settingsError.value, resizePreviews.value.map((image) => outputSignature(image)), currentSettings()]), () => {
+  // Preserve ready outputs for untouched images in the batch.
+  for (const [id, output] of Object.entries(outputPreviews.value)) {
+    const image = resizePreviews.value.find((image) => image.id === id)
+    if (!image || settingsError.value || output.signature !== outputSignature(image)) {
+      if (output.url) URL.revokeObjectURL(output.url)
+      delete outputPreviews.value[id]
+    }
+  }
+  schedulePreviews()
+})
 async function resizeImages() {
   if (resizeBusy.value || resizeLoading.value) return
   if (!resizeFiles.value.length) { setStatus('Select image files first.'); return }
-  const options = { width: resizeWidth.value, height: resizeHeight.value, mode: resizeMode.value, format: resizeFormat.value, quality: resizeQuality.value, method: resizeMethod.value }
+  if (settingsError.value) { setStatus(settingsError.value); return }
+  const options = currentSettings()
+  stopPreviewWork()
   resizeBusy.value = true
   cancelled = false
   const outputs: Array<{ name: string; blob: Blob }> = []
   const usedNames = new Set<string>()
   let totalBytes = 0
+  let unmetTargets = 0
   try {
     for (const [index, file] of resizeFiles.value.entries()) {
       assertActive()
       setStatus('Resizing image ' + (index + 1) + ' of ' + resizeFiles.value.length + '…')
-      const image = await readImage(file)
-      assertActive()
       const preview = resizePreviews.value[index]!
-      const { targetWidth, targetHeight, sourceX, sourceY, sourceWidth, sourceHeight } = imageResizeRegion(image.width, image.height, options.width, options.height, options.mode, preview.cropX, preview.cropY, preview.cropScale)
-      const canvas = document.createElement('canvas')
-      try {
-        canvas.width = targetWidth
-        canvas.height = targetHeight
-        const context = canvas.getContext('2d')
-        if (!context) throw new Error('Could not create the output canvas.')
-        if (options.method === 'lanczos') {
-          const source = document.createElement('canvas')
-          let rgba: ArrayBuffer
-          try {
-            source.width = Math.max(1, Math.round(sourceWidth))
-            source.height = Math.max(1, Math.round(sourceHeight))
-            const sourceContext = source.getContext('2d', { willReadFrequently: true })
-            if (!sourceContext) throw new Error('Could not read the image pixels.')
-            sourceContext.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, source.width, source.height)
-            rgba = sourceContext.getImageData(0, 0, source.width, source.height).data.buffer as ArrayBuffer
-            const result = await processor.resize({ rgba, width: source.width, height: source.height, targetWidth, targetHeight })
-            assertActive()
-            context.putImageData(new ImageData(new Uint8ClampedArray(result), targetWidth, targetHeight), 0, 0)
-          } finally { source.width = source.height = 0 }
-        } else {
-          context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, targetWidth, targetHeight)
-        }
-        const extension = options.format === 'original' ? file.name.split('.').pop()?.toLowerCase() || 'png' : options.format
-        const mime = extension === 'jpg' || extension === 'jpeg' ? 'image/jpeg' : extension === 'webp' ? 'image/webp' : 'image/png'
-        const blob = await canvasToBlob(canvas, mime, mime === 'image/png' ? 1 : options.quality / 100)
-        assertActive()
-        totalBytes += blob.size
-        if (totalBytes > 128 * 1024 * 1024) throw new Error('Outputs exceed 128 MB. Resize fewer images at a time.')
-        const actualExtension = blob.type === 'image/jpeg' ? 'jpg' : blob.type === 'image/webp' ? 'webp' : 'png'
-        const base = file.name.replace(/\.[^/.]+$/, '') + '-resized'
-        let name = base + '.' + actualExtension, suffix = 2
-        while (usedNames.has(name)) name = base + '-' + suffix++ + '.' + actualExtension
-        usedNames.add(name)
-        outputs.push({ name, blob })
-      } finally { canvas.width = canvas.height = 0 }
+      const cached = outputPreviews.value[preview.id]
+      const result = cached?.blob && cached.signature === outputSignature(preview, options)
+        ? { blob: cached.blob, targetMet: cached.targetMet }
+        : await renderImageOutput(file, { ...preview }, options, processor, assertActive)
+      const blob = result.blob
+      assertActive()
+      if (!result.targetMet) unmetTargets++
+      totalBytes += blob.size
+      if (totalBytes > 128 * 1024 * 1024) throw new Error('Outputs exceed 128 MB. Resize fewer images at a time.')
+      const actualExtension = blob.type === 'image/jpeg' ? 'jpg' : blob.type === 'image/webp' ? 'webp' : 'png'
+      const base = file.name.replace(/\.[^/.]+$/, '') + '-resized'
+      let name = base + '.' + actualExtension, suffix = 2
+      while (usedNames.has(name)) name = base + '-' + suffix++ + '.' + actualExtension
+      usedNames.add(name)
+      outputs.push({ name, blob })
     }
     assertActive()
     if (outputs.length === 1) downloadBlob(outputs[0]!.blob, outputs[0]!.name)
@@ -251,13 +407,15 @@ async function resizeImages() {
       assertActive()
       downloadBlob(blob, 'resized-images.zip')
     }
-    setStatus('Done. Resized ' + outputs.length + ' image(s).')
+    setStatus('Done. Resized ' + outputs.length + ' image(s).' + (unmetTargets ? ' ' + unmetTargets + ' output(s) exceed the target size; lower dimensions or choose a higher size limit.' : ''))
   } catch (error) {
     if (!disposed) setStatus(error instanceof ProcessingCancelledError ? 'Resize cancelled. No files were downloaded.' : error instanceof Error ? error.message : 'Resize failed. Try a smaller batch.')
-  } finally { resizeBusy.value = false }
+  } finally { resizeBusy.value = false; schedulePreviews() }
 }
 onBeforeUnmount(() => {
   disposed = true
+  stopPreviewWork()
+  clearOutputPreviews()
   generation++
   cancelled = true
   processor.cancel()
@@ -285,6 +443,22 @@ onBeforeUnmount(() => {
             <option v-for="preset in resolutionPresets" :key="preset.name" :value="preset.name">{{ preset.name }} — {{ preset.width }} × {{ preset.height }}</option>
           </select>
         </label>
+        <div class="space-y-2 sm:col-span-2">
+          <label class="block text-sm font-semibold">Saved presets
+            <select v-model="selectedSavedPreset" class="field-control mt-1" @change="loadPreset">
+              <option value="">Choose saved settings</option>
+              <option v-for="preset in savedPresets" :key="preset.name" :value="preset.name">{{ preset.name }}</option>
+            </select>
+          </label>
+          <label class="block text-sm font-semibold">Preset name
+            <input v-model="presetName" type="text" maxlength="60" placeholder="e.g. Listing photos" class="field-control mt-1">
+          </label>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" class="btn-secondary min-h-11" :disabled="!!settingsError || !presetName.trim()" @click="savePreset">Save settings</button>
+            <button type="button" class="btn-secondary min-h-11" :disabled="!selectedSavedPreset" @click="deletePreset">Delete saved preset</button>
+          </div>
+          <p class="text-xs text-slate-600">Saved on this browser. Saving an existing name replaces its settings.</p>
+        </div>
         <label class="text-sm font-semibold">
           Width
           <input v-model.number="resizeWidth" type="number" min="1" class="field-control mt-1" >
@@ -304,7 +478,12 @@ onBeforeUnmount(() => {
         </label>
         <label class="text-sm font-semibold">
           Quality ({{ resizeQuality }}%)
-          <input v-model.number="resizeQuality" type="range" min="10" max="100" class="mt-2 w-full" >
+          <input v-model.number="resizeQuality" :disabled="resizeFormat === 'png'" type="range" min="10" max="100" class="mt-2 w-full" >
+        </label>
+        <label class="text-sm font-semibold sm:col-span-2">
+          Target file size per image (KB)
+          <input v-model.number="targetSizeKb" type="number" min="0" max="131072" step="1" class="field-control mt-1">
+          <span class="mt-1 block text-xs font-normal text-slate-600">0 disables the limit. Choose JPG or WebP. Quality is reduced up to your quality setting; dimensions stay fixed. Unreachable limits are flagged.</span>
         </label>
         <label class="text-sm font-semibold sm:col-span-2">
           Resampling filter
@@ -322,21 +501,31 @@ onBeforeUnmount(() => {
           </select>
           <span class="mt-1 block text-xs font-normal text-slate-600">{{ resizeMode === 'crop' ? 'Trims edges to match your dimensions without stretching. Adjust each crop below.' : 'Preserves the whole image. Output may be smaller than the requested width or height.' }}</span>
         </label>
-        <p v-if="!validOutput" class="text-sm text-red-700 sm:col-span-2" role="alert">Enter whole-number dimensions from 1 to 16384, up to 12 megapixels.</p>
+        <p v-if="settingsError" class="text-sm text-red-700 sm:col-span-2" role="alert">{{ settingsError }}</p>
+        <p v-if="!validOutput && !settingsError" class="text-sm text-red-700 sm:col-span-2" role="alert">Enter whole-number dimensions from 1 to 16384, up to 12 megapixels.</p>
       </fieldset>
     </div>
 
     <div v-if="resizePreviews.length" class="mt-5 space-y-3">
       <p class="text-sm font-semibold text-slate-700">Output Previews ({{ resizePreviews.length }})</p>
-      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div class="grid gap-5 xl:grid-cols-2">
         <article
           v-for="image in resizePreviews"
           :key="image.id"
           class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm"
         >
+          <div class="mb-3 flex flex-wrap gap-2">
+            <button type="button" class="btn-secondary min-h-11" :disabled="resizeBusy || resizeLoading" :aria-label="'Rotate left: ' + image.name" @click="orientImage(image, 'left')">Rotate left</button>
+            <button type="button" class="btn-secondary min-h-11" :disabled="resizeBusy || resizeLoading" :aria-label="'Rotate right: ' + image.name" @click="orientImage(image, 'right')">Rotate right</button>
+            <button type="button" class="btn-secondary min-h-11" :disabled="resizeBusy || resizeLoading" :aria-pressed="image.flipX" @click="orientImage(image, 'flipX')">Flip horizontal</button>
+            <button type="button" class="btn-secondary min-h-11" :disabled="resizeBusy || resizeLoading" :aria-pressed="image.flipY" @click="orientImage(image, 'flipY')">Flip vertical</button>
+          </div>
+          <div class="grid gap-4 sm:grid-cols-2">
+          <div>
+          <p class="mb-2 text-sm font-semibold">Crop editor</p>
           <div class="flex h-64 items-center justify-center rounded-lg border border-slate-200 bg-slate-50">
             <div class="relative isolate max-h-full max-w-full overflow-hidden" :style="{ aspectRatio: image.width + ' / ' + image.height, width: 'min(100%, ' + (256 * image.width / image.height) + 'px)' }">
-              <img :src="image.previewUrl" :alt="'Original image: ' + image.name" draggable="false" class="pointer-events-none block h-full w-full select-none object-contain">
+              <img :src="image.previewUrl" :alt="'Original image: ' + image.name" draggable="false" class="pointer-events-none absolute left-1/2 top-1/2 max-w-none select-none" :style="editorImageStyle(image)">
               <div v-if="resizeMode === 'crop' && validOutput" class="absolute" :style="cropBoxStyle(image)">
               <button
                 type="button"
@@ -368,19 +557,37 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </div>
+          </div>
+          <div>
+            <p class="mb-2 text-sm font-semibold">Live output preview</p>
+            <div class="flex h-64 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 p-2" :aria-busy="previewBusy">
+              <img v-if="outputPreviews[image.id]?.url" :src="outputPreviews[image.id]!.url" :alt="'Export preview: ' + image.name" class="max-h-full max-w-full object-contain">
+              <p v-else class="p-2 text-sm text-slate-600" role="status">{{ settingsError || outputPreviews[image.id]?.error || (previewBusy ? 'Updating preview…' : 'Output preview unavailable.') }}</p>
+            </div>
+            <p class="mt-2 text-xs text-slate-600">Encoded at the selected resolution, format and quality.</p>
+          </div>
+          </div>
+          <p v-if="upscaleWarning(image)" class="mt-3 text-sm text-amber-800">{{ upscaleWarning(image) }}</p>
+          <p v-if="outputPreviews[image.id]?.targetMet === false" class="mt-2 text-sm text-amber-800">Target size could not be reached at these dimensions. This output will exceed your limit. Reduce dimensions or increase the limit.</p>
           <p v-if="resizeMode === 'crop' && validOutput" class="mt-2 text-xs text-slate-600">Drag to move; drag a corner to resize. Arrow keys adjust the focused box or handle.</p>
           <button v-if="resizeMode === 'crop'" type="button" class="btn-secondary mt-2 min-h-11" :disabled="resizeBusy || resizeLoading" @click="resetCrop(image)">Reset crop</button>
           <div class="mt-3 space-y-1 text-sm text-slate-700">
             <p class="truncate font-semibold" :title="image.name">{{ image.name }}</p>
-            <p>Original: {{ image.width }} × {{ image.height }} px</p>
-            <p class="font-semibold">Output: {{ outputSize(image) }}</p>
-            <p>{{ image.sizeKb }} KB</p>
+            <table class="w-full text-left text-sm">
+              <caption class="sr-only">Before and after for {{ image.name }}</caption>
+              <thead><tr><th scope="col" class="py-1">Version</th><th scope="col" class="py-1">Dimensions</th><th scope="col" class="py-1">File size</th></tr></thead>
+              <tbody>
+                <tr><th scope="row" class="py-1 font-normal">Original</th><td>{{ image.originalWidth }} × {{ image.originalHeight }}</td><td>{{ formatBytes(resizeFiles[Number(image.id)]?.size || 0) }}</td></tr>
+                <tr><th scope="row" class="py-1 font-normal">Output</th><td>{{ outputSize(image) }}</td><td>{{ outputPreviews[image.id]?.blob ? formatBytes(outputPreviews[image.id]!.blob!.size) : 'Pending' }}</td></tr>
+              </tbody>
+            </table>
+            <p v-if="outputPreviews[image.id]?.blob">{{ sizeDifference(image) }} · {{ outputPreviews[image.id]!.blob!.type.replace('image/', '').toUpperCase() }}<span v-if="outputPreviews[image.id]!.blob!.type !== 'image/png'"> · Quality {{ Math.round((outputPreviews[image.id]!.quality || 1) * 100) }}%</span></p>
           </div>
         </article>
       </div>
     </div>
 
-    <button class="btn-primary mt-4 disabled:opacity-60" :disabled="resizeBusy || resizeLoading || !resizeFiles.length || !validOutput" @click="resizeImages">
+    <button class="btn-primary mt-4 disabled:opacity-60" :disabled="resizeBusy || resizeLoading || !resizeFiles.length || !validOutput || !!settingsError" @click="resizeImages">
       {{ resizeBusy ? 'Resizing...' : 'Resize Images' }}
     </button>
     <button v-if="resizeBusy" class="btn-secondary ml-2" @click="cancelResize">Cancel resize</button>

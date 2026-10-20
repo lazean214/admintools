@@ -1,3 +1,4 @@
+import { encodeImageWithinSize, orientedImageSize, rotateImageOrientation, imageUpscaleFactor, parseImageResizePresets, validateImageResizeSettings } from '../app/utils/image-resize.ts'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -358,4 +359,57 @@ test('resized crop preserves target ratio, stays bounded at every position, and 
   assert.deepEqual(imageResizeRegion(1200, 800, 600, 600, 'fit', 50, 50, 0.25), imageResizeRegion(1200, 800, 600, 600, 'fit'))
   assert.deepEqual(imageResizeRegion(1200, 800, 600, 600, 'crop', 50, 50, 1), imageResizeRegion(1200, 800, 600, 600, 'crop'))
   for (const scale of [0, -1, 0.09, 1.01, NaN, Infinity]) assert.throws(() => imageResizeRegion(1200, 800, 600, 600, 'crop', 50, 50, scale))
+})
+
+const resizeSettings = { width: 600, height: 400, mode: 'crop', format: 'jpg', quality: 90, method: 'standard', targetKb: 0 }
+test('orientation and upscaling use the oriented crop rather than the original resolution', () => {
+  assert.deepEqual(rotateImageOrientation(0, true, false, 'right'), { rotation: 90, flipX: false, flipY: true })
+  assert.deepEqual(rotateImageOrientation(90, false, true, 'left'), { rotation: 0, flipX: true, flipY: false })
+  let orientation = { rotation: 0, flipX: true, flipY: false }
+  for (let i = 0; i < 4; i++) orientation = rotateImageOrientation(orientation.rotation, orientation.flipX, orientation.flipY, 'right')
+  assert.deepEqual(orientation, { rotation: 0, flipX: true, flipY: false })
+  assert.deepEqual(orientedImageSize(1200, 800, 90), { width: 800, height: 1200 })
+  assert.deepEqual(orientedImageSize(1200, 800, 270), { width: 800, height: 1200 })
+  assert.deepEqual(orientedImageSize(1200, 800, 180), { width: 1200, height: 800 })
+  assert.throws(() => orientedImageSize(1200, 800, 45))
+  assert.equal(imageUpscaleFactor(1200, 800, resizeSettings, 50, 50, 1), 0.5)
+  assert.equal(imageUpscaleFactor(1200, 800, resizeSettings, 50, 50, 0.25), 2)
+  assert.equal(imageUpscaleFactor(1200, 800, { ...resizeSettings, mode: 'fit' }, 50, 50, 0.25), 0.5)
+})
+test('saved presets reject malformed and unsafe values and preserve complete settings', () => {
+  const valid = { ...resizeSettings, name: ' Listing photos ', targetKb: 500 }
+  assert.deepEqual(parseImageResizePresets(JSON.stringify([valid])), [{ ...valid, name: 'Listing photos' }])
+  assert.deepEqual(parseImageResizePresets('{}'), [])
+  assert.throws(() => parseImageResizePresets('{'))
+  const bad = [null, {}, { ...valid, name: '' }, { ...valid, width: 0 }, { ...valid, width: 4000, height: 4000 }, { ...valid, format: 'gif' }, { ...valid, method: 'unknown' }, { ...valid, quality: 0 }, { ...valid, targetKb: -1 }, { ...valid, format: 'png' }, { ...valid, name: 'x'.repeat(61) }]
+  assert.deepEqual(parseImageResizePresets(JSON.stringify(bad)), [])
+  assert.equal(parseImageResizePresets(JSON.stringify([valid, valid])).length, 1)
+  assert.equal(parseImageResizePresets(JSON.stringify(Array.from({ length: 30 }, (_, index) => ({ ...valid, name: String(index) })))).length, 20)
+  assert.throws(() => validateImageResizeSettings({ ...resizeSettings, format: 'original', targetKb: 500 }), /JPG or WebP/)
+})
+test('size targeting finds a bounded quality under the byte limit and respects the quality ceiling', async () => {
+  const qualities = []
+  const encode = async (q) => { qualities.push(q); return new Blob([new Uint8Array(Math.ceil(q * 10000))], { type: 'image/jpeg' }) }
+  const result = await encodeImageWithinSize(encode, 0.9, 5000)
+  assert.equal(result.targetMet, true)
+  assert.ok(result.blob.size <= 5000)
+  assert.ok(result.quality > 0.49 && result.quality <= 0.5)
+  assert.ok(qualities.length <= 9)
+  assert.ok(qualities.every(q => q >= 0.1 && q <= 0.9))
+  const noTarget = await encodeImageWithinSize(encode, 0.8, 0)
+  assert.equal(noTarget.quality, 0.8)
+  assert.equal(noTarget.blob.size, 8000)
+})
+test('unreachable targets and unsupported encoders are reported honestly; cancellation stops compression', async () => {
+  const impossible = await encodeImageWithinSize(async (q) => new Blob([new Uint8Array(1000 + q * 1000)], { type: 'image/webp' }), 0.9, 500)
+  assert.equal(impossible.targetMet, false)
+  assert.equal(impossible.quality, 0.1)
+  assert.equal(impossible.blob.size, 1100)
+  let calls = 0
+  const fallback = await encodeImageWithinSize(async () => { calls++; return new Blob([new Uint8Array(1000)], { type: 'image/png' }) }, 0.9, 500)
+  assert.equal(fallback.targetMet, false)
+  assert.equal(calls, 1)
+  let active = true
+  await assert.rejects(encodeImageWithinSize(async () => { active = false; return new Blob(['test'], { type: 'image/jpeg' }) }, 0.9, 1, () => { if (!active) throw new ProcessingCancelledError() }), ProcessingCancelledError)
+  await assert.rejects(encodeImageWithinSize(async () => new Blob(), NaN, 1))
 })
