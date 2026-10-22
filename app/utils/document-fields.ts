@@ -1,19 +1,21 @@
 import { parseDocumentMrz } from './document-mrz'
+import { englishDocumentLine, isDocumentPlaceholder } from './document-text'
 
 export const ejariFieldDefinitions = [
   { key: 'ownerName', label: 'Owner name', aliases: ['owner name', 'name of owner', 'landlord name'] },
   { key: 'lessorName', label: 'Lessor name', aliases: ['lessor name', 'name of lessor'] },
   { key: 'tenantName', label: 'Tenant name', aliases: ['tenant name', 'name of tenant', 'tenant full name'] },
   { key: 'buildingName', label: 'Building name', aliases: ['building name', 'building'] },
-  { key: 'propertyNo', label: 'Property number', aliases: ['property number', 'property no', 'unit number', 'unit no'] },
-  { key: 'location', label: 'Property location', aliases: ['property location', 'property address', 'location'] },
+  { key: 'propertyNo', label: 'Property number', aliases: ['property number', 'property no', 'unit number', 'unit no', 'unit'] },
+  { key: 'location', label: 'Property location', aliases: ['property location', 'property address', 'location', 'community'] },
   { key: 'plotOrMakaniNo', label: 'Plot / Makani number', aliases: ['plot number', 'plot no', 'makani number', 'makani no'] },
-  { key: 'premisesNoDewa', label: 'DEWA premises number', aliases: ['dewa premises number', 'premises number', 'dewa number'] },
+  { key: 'premisesNoDewa', label: 'DEWA premises number', aliases: ['dewa premises number', 'premises number', 'dewa number', 'premises no. (dewa)', 'premises no (dewa)'] },
+  { key: 'propertyType', label: 'Property type', aliases: ['property type'] },
   { key: 'contractStartDate', label: 'Contract start date', aliases: ['contract start date', 'commencement date', 'start date'] },
   { key: 'contractEndDate', label: 'Contract end date', aliases: ['contract end date', 'contract expiry date', 'end date'] },
   { key: 'annualRentAed', label: 'Annual rent (AED)', aliases: ['annual rent aed', 'annual rent', 'annual rental amount'] },
   { key: 'contractValueAed', label: 'Contract value (AED)', aliases: ['contract value aed', 'contract value', 'contract amount'] },
-  { key: 'securityDepositAed', label: 'Security deposit (AED)', aliases: ['security deposit aed', 'security deposit', 'deposit amount'] },
+  { key: 'securityDepositAed', label: 'Security deposit (AED)', aliases: ['security deposit aed', 'security deposit amount', 'security deposit', 'deposit amount'] },
   { key: 'tenantEmail', label: 'Tenant email', aliases: ['tenant email', 'tenant email address'] },
   { key: 'tenantPhone', label: 'Tenant phone', aliases: ['tenant phone', 'tenant mobile', 'tenant telephone'] },
   { key: 'lessorEmail', label: 'Lessor email', aliases: ['lessor email', 'landlord email'] },
@@ -28,21 +30,41 @@ export const documentFieldDefinitions = [...ejariFieldDefinitions,
   { key: 'givenNames', label: 'Given names', aliases: ['given names', 'given name', 'first name'] },
   { key: 'passportNumber', label: 'Passport number', aliases: ['passport number', 'passport no', 'passport no.', 'passport #'] },
   { key: 'emiratesId', label: 'Emirates ID number', aliases: ['emirates id number', 'emirates id no', 'emirates id'] },
-  { key: 'cardNumber', label: 'Card / document number', aliases: ['card number', 'card no', 'document number', 'document no', 'id number', 'id no'] },
+  { key: 'cardNumber', label: 'Card / document number', aliases: ['card number', 'card no', 'document number', 'document no', 'id number', 'id no', 'passport or emirates id'] },
   { key: 'nationality', label: 'Nationality', aliases: ['nationality'] },
   { key: 'issuingCountry', label: 'Issuing country', aliases: ['issuing country', 'issuing state', 'country code'] },
   { key: 'birthDate', label: 'Date of birth', aliases: ['date of birth', 'birth date', 'dob'] },
   { key: 'identityExpiryDate', label: 'Document expiry date', aliases: ['date of expiry', 'expiration date', 'expiry date', 'valid until', 'valid to'] },
-  { key: 'issueDate', label: 'Document issue date', aliases: ['date of issue', 'issue date', 'issued on'] },
+  { key: 'issueDate', label: 'Document issue date', aliases: ['date of issue', 'issue date', 'issuing date', 'issued on'] },
+  { key: 'issuingPlace', label: 'Issuing place', aliases: ['issuing place', 'place of issue'] },
+  { key: 'occupation', label: 'Occupation', aliases: ['occupation'] },
   { key: 'sex', label: 'Sex', aliases: ['sex', 'gender'] },
   { key: 'referenceNumber', label: 'Reference number', aliases: ['reference number', 'reference no', 'ref no', 'noc number', 'noc no'] },
+  { key: 'documentDate', label: 'Document date', aliases: ['date'] },
   { key: 'companyName', label: 'Company name', aliases: ['company name', 'establishment name'] },
   { key: 'subject', label: 'Subject / purpose', aliases: ['subject', 'purpose'] },
   { key: 'email', label: 'Email', aliases: ['email address', 'e-mail', 'email'] },
   { key: 'phone', label: 'Phone', aliases: ['mobile number', 'telephone', 'phone number', 'phone', 'mobile'] },
+  { key: 'buildingNumber', label: 'Building number', aliases: ['building number', 'building no'] },
+  { key: 'floorNumber', label: 'Floor number', aliases: ['floor number', 'floor no'] },
+  { key: 'municipalityNumber', label: 'Municipality number', aliases: ['municipality number', 'municipality no'] },
+  { key: 'parking', label: 'Parking', aliases: ['parkings', 'parking'] },
+  { key: 'suiteAreaSqm', label: 'Suite area (sq m)', aliases: ['suite area'] },
+  { key: 'balconyAreaSqm', label: 'Balcony area (sq m)', aliases: ['balcony area'] },
+  { key: 'totalAreaSqm', label: 'Total area (sq m)', aliases: ['area sq meter', 'area sq metre'] },
+  { key: 'totalAreaSqft', label: 'Total area (sq ft)', aliases: ['area sq feet', 'area sq foot'] },
+  { key: 'mortgageStatus', label: 'Mortgage status', aliases: ['mortgage status'] },
+  { key: 'titleDeedNumber', label: 'Title deed number', aliases: ['title deed number', 'title deed no', 'certificate number'] },
+  { key: 'ownerRegistrationNumber', label: 'Owner registration number', aliases: ['owner registration number'] },
+  { key: 'streetName', label: 'Street name', aliases: ['street name'] },
+  { key: 'propertyBuaSqft', label: 'Built-up area (sq ft)', aliases: ['bua (sqft)', 'bua (sq ft)'] },
+  { key: 'propertyPlotSqft', label: 'Plot area (sq ft)', aliases: ['plot (sqft)', 'plot (sq ft)'] },
+  { key: 'bedrooms', label: 'Bedrooms', aliases: ['bedrooms', 'bedroom'] },
+  { key: 'bathrooms', label: 'Bathrooms', aliases: ['bathrooms', 'bathroom'] },
+  { key: 'rentalAmountAed', label: 'Rental amount (AED)', aliases: ['rental amount'] },
 ] as const
 
-export type DocumentKind = 'auto' | 'passport' | 'emirates-id' | 'noc' | 'property' | 'other'
+export type DocumentKind = 'auto' | 'passport' | 'emirates-id' | 'noc' | 'property' | 'title-deed' | 'other'
 export type IdentityRole = '' | 'tenant' | 'lessor' | 'owner'
 export type EjariFieldKey = typeof ejariFieldDefinitions[number]['key']
 export type ReviewedEjariFields = Partial<Record<EjariFieldKey, string>>
@@ -53,8 +75,11 @@ export type ReviewedDocumentFields = Partial<Record<DocumentFieldKey, string>>
 export const MAX_DOCUMENT_TEXT = 100_000
 
 export function detectDocumentKind(text: string): Exclude<DocumentKind, 'auto'> {
-  if (/^P[A-Z<][A-Z<]{3}[A-Z<\s]{30,}/im.test(text)) return 'passport'
-  if (/no[-\s]+objection|\bNOC\b/i.test(text)) return 'noc'
+  if (text.split(/\r?\n/).some(line => /^P[A-Z<][A-Z<]{3}[A-Z<]{39}$/.test(line.replace(/\s/g, '')) && line.includes('<'))) return 'passport'
+  if (/title\s+deed/i.test(text)) return 'title-deed'
+  if (/no[-\s]+objection|\bNOC\b|listing\s+agreement|landlord\s+details/i.test(text)) return 'noc'
+  if (/tenancy\s+contract|tenant\s+information|contract\s+information/i.test(text)) return 'property'
+  if (text.split(/\r?\n/).some(line => /^I[A-Z<]ARE[A-Z0-9<]{25}$/.test(line.replace(/\s/g, '')))) return 'emirates-id'
   if (/emirates\s*id|identity\s*card|(?<!\d)784[-\s]?\d{4}[-\s]?\d{7}[-\s]?\d(?!\d)/i.test(text)) return 'emirates-id'
   if (/passport/i.test(text)) return 'passport'
   if (/\b(tenancy|tenant|annual rent|ejari)\b/i.test(text)) return 'property'
@@ -64,7 +89,22 @@ export function detectDocumentKind(text: string): Exclude<DocumentKind, 'auto'> 
 const definitions = documentFieldDefinitions.flatMap(field => field.aliases.map(alias => ({ ...field, alias })))
   .sort((a, b) => b.alias.length - a.alias.length)
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-const patterns = definitions.map(field => ({ ...field, pattern: new RegExp(`^\\s*${escape(field.alias)}[.]?(?:\\s*[:=|\\t]\\s*|\\s{2,})(.*)$`, 'i') }))
+const labelPattern = (alias: string) => alias.split(/\s+/).map(escape).join('\\s+')
+const patterns = definitions.map(field => ({ ...field, pattern: new RegExp(`(^|\\t+| {2,}| (?=${labelPattern(field.alias)}[.]?\\s*:))(${labelPattern(field.alias)})[.]?(?=\\s*[:=|/]|\\t| {2,}|\\s+\\d|$)`, 'gi') }))
+function lineLabels(line: string) {
+  const matches = patterns.flatMap(field => [...line.matchAll(field.pattern)].map(match => ({ field, index: match.index! + match[1]!.length, end: match.index! + match[0].length })))
+    .sort((a, b) => a.index - b.index || b.end - a.end)
+  const labels: typeof matches = []
+  for (const match of matches) if (!labels.length || match.index >= labels[labels.length - 1]!.end) labels.push(match)
+  return labels
+}
+const templateHeading = /^(?:owner\s*\/\s*lessor information|owner information|tenant information|landlord details|property (?:information|details)|contract information|terms (?:and|&) conditions|signatures?|approved signature|license no\.?|licensing authority|incase of a company|in case of a company|passport number\s*\/\s*emirates id|tenant signature|lessor signature|landlord signature)$/i
+const cleanValue = (value: string) => value.replace(/^[\s:=|/]+|[\s:=|/]+$/g, '').replace(/[_·.\-]{3,}/g, ' ').replace(/\s+/g, ' ').trim()
+const boundary = (value: string) => !value || templateHeading.test(value) || lineLabels(value).length > 0
+  || /^(?:license no\.?|licensing authority|property area|landlord details|property details|terms and conditions)(?:\s|[:/]|$)/i.test(value)
+  || /^(?:from|to)(?:\s|$)/i.test(value)
+  || definitions.some(field => field.alias.includes(' ') && new RegExp(`^${labelPattern(field.alias)}[.]?(?=\\s|[:/]|$)`, 'i').test(value))
+
 const formatEmiratesId = (value: string) => {
   const digits = value.replace(/[-\s]/g, '')
   return /^784\d{12}$/.test(digits) ? `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7, 14)}-${digits.slice(14)}` : value
@@ -73,28 +113,45 @@ const formatEmiratesId = (value: string) => {
 /** Conservative label matching after OCR: preserve source text and conflicting values for review. */
 export function extractDocumentFields(text: string, kind: DocumentKind = 'auto'): DocumentField[] {
   if (text.length > MAX_DOCUMENT_TEXT) throw new Error('Use a shorter document excerpt (up to 100,000 characters).')
-  const lines = text.replace(/\r/g, '').split('\n').map(line => line.trim()).filter(Boolean)
+  const sourceLines = text.replace(/\r/g, '').split('\n').map(line => line.trim())
+  const lines = sourceLines.map(englishDocumentLine)
+  for (let i = 0; i < lines.length - 1; i++) {
+    if (/^passport number\s*\/$/i.test(lines[i]!) && /^emirates id$/i.test(lines[i + 1]!)) {
+      lines[i] = 'Passport or Emirates ID'; sourceLines[i] += '\n' + sourceLines[i + 1]
+      lines.splice(i + 1, 1); sourceLines.splice(i + 1, 1)
+    }
+  }
   const results: DocumentField[] = []
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!
-    for (const field of patterns) {
-      const match = line.match(field.pattern)
-      const labelOnly = line.replace(/[:=|.]\s*$/, '').trim().toLowerCase() === field.alias
-      if (!match && !labelOnly) continue
-      let value = match?.[1]?.trim() ?? ''
-      let source = line
-      if (!value && lines[i + 1]) {
-        const next = lines[i + 1]!
-        if (patterns.some(item => item.pattern.test(next) || next.replace(/[:=|.]\s*$/, '').trim().toLowerCase() === item.alias)) break
-        value = next; source += '\n' + next
+    const line = lines[i]!, labels = lineLabels(line)
+    // PDF word runs can resemble labels inside terms/paragraphs. Start only at
+    // a field label (optionally numbered), then read subsequent explicit columns.
+    if (labels.length && !/^(?:\d+[.)]?\s*)?$/.test(line.slice(0, labels[0]!.index).trim())) continue
+    for (let n = 0; n < labels.length; n++) {
+      const current = labels[n]!, field = current.field
+      let value = cleanValue(line.slice(current.end, labels[n + 1]?.index ?? line.length))
+      let source = sourceLines[i]!
+      if (!value && labels.length === 1) {
+        // Skip at most one adjacent Arabic translation line, never another field.
+        let next = i + 1
+        if (next < lines.length && !lines[next] && /[\u0600-\u06ff\ufb50-\ufeff]/.test(sourceLines[next]!)) next++
+        if (next < lines.length && !boundary(lines[next]!)) {
+          value = cleanValue(lines[next]!)
+          source = sourceLines.slice(i, next + 1).join('\n')
+        }
       }
-      // Multiple fields on the same line are ambiguous; leave these for manual review.
-      const segments = value.split(/\s{2,}/)
-      if (!value || value.length > 300 || /[:=|]/.test(value) || segments.slice(1).some(segment => definitions.some(item => item.alias === segment.trim().toLowerCase()))) break
-      if (!results.some(item => item.key === field.key && item.value === value)) {
-        results.push({ key: field.key, label: field.label, value, source, selected: false })
+      if (/Date$/.test(field.key)) {
+        const dates = [...value.matchAll(/\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4})\b/g)]
+        if (dates.length === 1) value = dates[0]![0]
       }
-      break
+      if (field.key === 'cardNumber') {
+        const number = value.match(/^784[-\s]?\d{4}[-\s]?\d{7}[-\s]?\d(?!\d)/) ?? value.match(/^\d{6,12}\b/)
+        if (number) value = number[0]
+      }
+      if (isDocumentPlaceholder(value, /Aed$/.test(field.key)) || value.length > 300 || /[:=|]/.test(value) || boundary(value)) continue
+      // A known label appearing in a value without a clear column boundary is ambiguous.
+      if (definitions.some(other => new RegExp(`\\b${labelPattern(other.alias)}[.]?(?:\\s*[:=|]|\\s{2,}|$)`, 'i').test(value))) continue
+      if (!results.some(item => item.key === field.key && item.value === value)) results.push({ key: field.key, label: field.label, value, source, selected: false })
     }
   }
   const identityContext = ['passport', 'emirates-id', 'noc'].includes(kind === 'auto' ? detectDocumentKind(text) : kind)
@@ -111,6 +168,25 @@ export function extractDocumentFields(text: string, kind: DocumentKind = 'auto')
   }
   if (kind === 'auto' || kind === 'passport' || kind === 'emirates-id') {
     for (const value of parseDocumentMrz(text)) add(value.key, value.value, value.source, value.warning)
+  }
+  if ((kind === 'auto' ? detectDocumentKind(text) : kind) === 'title-deed') {
+    let owners = false
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!.replace(/\s+/g, ' ').trim()
+      if (/owners? numbers? and their|owners? and their shares/i.test(line)) { owners = true; continue }
+      if (/approved signature|dubai land department|purchased from/i.test(line)) owners = false
+      if (!owners) continue
+      const match = line.replace(/\s+\(\d+\).*$/, '').match(/^\((\d{4,12})\)\s+([A-Z][A-Z .'-]+?)(?:\s+\d+(?:\.\d+)?\s*)?$/)
+      if (!match) continue
+      let name = match[2]!.trim(), end = i
+      let next = i + 1
+      if (/^\(?\d{4,12}\)?$/.test((lines[next] ?? '').trim())) next++
+      const continuation = (lines[next] ?? '').replace(/\s+/g, ' ').trim()
+      if (next < lines.length && /^[A-Z][A-Z .'-]{3,}$/.test(continuation) && !/SIGNATURE|DEPARTMENT|CERTIFICATE/.test(continuation)) { name += ' ' + continuation; end = next }
+      const source = sourceLines.slice(i, end + 1).join('\n')
+      add('ownerName', name, source, 'Read from the ownership table. Review all listed owners before using this name.')
+      add('ownerRegistrationNumber', match[1]!, source)
+    }
   }
   if (identityContext) {
     for (const line of lines) {

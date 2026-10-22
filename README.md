@@ -6,6 +6,8 @@ Nuxt 4 tools for real estate documents, PDF editing, local OCR, images and a rol
 
 ## Features
 
+Emirates ID results separate identity and card details. Title-deed results group owners, property details, areas with their units and deed details. Expand a value’s source to compare it before marking it reviewed. Conflicting readings and multiple owners remain separate; ambiguous dates require confirmation.
+
 - Form I / Agent-to-Agent, Listing NOC and EJARI template workflows.
 - PDF editor: supported original text replacement, selectable added text, images, visual signatures, shapes, highlights, links, page rotation/reordering/deletion and undo/redo.
 - English OCR: review and correct recognized lines, then reconstruct the current scanned page as actual editable PDF text.
@@ -134,6 +136,7 @@ Open `/document-field-extractor` to read a PDF page, PNG, JPG or WebP, or paste 
 | Passport | Names, passport number, nationality, issuing country, birth/expiry dates and standard machine-readable text |
 | Emirates ID | Neutral holder name, Emirates ID number, nationality, printed dates and supported card text |
 | NOC / authorization letter | References, subject, company/property details and supported named-author/passport-number clauses |
+| Title deed | Property identifiers, building/floor/parking, areas with original units, mortgage status and separately reviewed owner rows |
 | Property / tenancy document | Explicit owner/lessor/tenant details, property identifiers, contract dates, rent and deposit |
 | Other document | Supported common labels and manually added fields with source excerpts |
 
@@ -143,7 +146,7 @@ Open `/document-field-extractor` to read a PDF page, PNG, JPG or WebP, or paste 
 
 Identity names remain neutral until you explicitly choose **tenant**, **lessor** or **owner**. Passport numbers never fill Emirates ID fields. Nationality, birth dates, passport/card numbers and other unmatched details are available in the download; owner IDs have no separate EJARI field. Conflicting values block transfer.
 
-Use clear, upright images. Reading supports printed English; Arabic-only text requires manual entry. Machine-readable text checks detect some transcription errors and do not establish document authenticity. Two-digit years require a full date entered as YYYY-MM-DD. Enter amounts without currency or commas. Unsupported layouts, unclear text and missing labels may need manual correction.
+Blank labels, separator lines, date placeholders and preprinted zero amounts are skipped. Bilingual labels and clearly separated columns are matched using their English text while original source excerpts remain available. NOC/listing agreements and title deeds have dedicated profiles; multiple owners stay separate for review. Use clear, upright images. Reading supports printed English; Arabic-only text requires manual entry. Machine-readable text checks detect some transcription errors and do not establish document authenticity. Two-digit years require a full date entered as YYYY-MM-DD. Enter amounts without currency or commas. Unsupported layouts, unclear text and missing labels may need manual correction.
 
 Limits: **32 MB/file**, PDFs up to **100 pages**, images up to **12 megapixels** and **16,384 pixels per side**, **100,000 text characters** and **300 characters per field**. Reading one file/page at a time keeps documents separate; choosing another file clears the previous suggestions and role. Temporary imports are lost on reload.
 
@@ -152,7 +155,7 @@ Document reading and smart selection are **free**, require no paid API, API key 
 Focused document checks:
 
 ```sh
-node --experimental-strip-types --import ./scripts/register-types.mjs --test tests/document-fields.test.mjs tests/document-identity-ocr.test.mjs
+node --experimental-strip-types --import ./scripts/register-types.mjs --test tests/document-fields.test.mjs tests/document-template-layout.test.mjs tests/document-identity-ocr.test.mjs
 ```
 
 The checks cover passport/card parsing, Emirates ID recognition, NOC clauses, explicit role mapping and local OCR on clearly marked synthetic images. Browser checks confirmed role selection is required and only the matching name/Emirates ID fields transfer to EJARI. App/processing type checks and the production build also passed. These checks do not guarantee every real-world document layout is readable.

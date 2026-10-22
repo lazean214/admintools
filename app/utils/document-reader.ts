@@ -2,6 +2,7 @@ import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import type { PDFDocumentLoadingTask, RenderTask } from 'pdfjs-dist'
 import { PdfOcrClient } from './pdf-ocr-client'
 import { MAX_DOCUMENT_TEXT } from './document-fields'
+import { pdfDocumentText } from './document-text'
 
 /** Reads one page at a time; Cancel also stops PDF rendering and OCR initialization. */
 export class DocumentReader {
@@ -40,15 +41,7 @@ export class DocumentReader {
         if (!forceOcr) {
           const content = await page.getTextContent(); active()
           // Keep physical rows together and separate labels from their values.
-          const rows: { y: number; x: number; text: string }[][] = []
-          for (const item of content.items) {
-            if (!('str' in item) || !item.str.trim()) continue
-            const y = item.transform[5]!, x = item.transform[4]!
-            let row = rows.find(row => Math.abs(row[0]!.y - y) < 3)
-            if (!row) { row = []; rows.push(row) }
-            row.push({ y, x, text: item.str })
-          }
-          const text = rows.sort((a, b) => b[0]!.y - a[0]!.y).map(row => row.sort((a, b) => a.x - b.x).map(item => item.text).join('  ')).join('\n')
+          const text = pdfDocumentText(content.items.filter(item => 'str' in item))
           if (text.length > MAX_DOCUMENT_TEXT) throw new Error('This page contains too much text. Use a shorter excerpt.')
           if (text.trim()) return { text, pages: pdf.numPages, method: 'text' as const }
         }

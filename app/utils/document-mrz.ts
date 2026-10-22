@@ -1,4 +1,4 @@
-export type MrzValue = { key: 'fullName' | 'surname' | 'givenNames' | 'passportNumber' | 'cardNumber' | 'nationality' | 'issuingCountry' | 'birthDate' | 'identityExpiryDate' | 'sex'; value: string; source: string; warning?: string }
+export type MrzValue = { key: 'fullName' | 'surname' | 'givenNames' | 'passportNumber' | 'cardNumber' | 'emiratesId' | 'nationality' | 'issuingCountry' | 'birthDate' | 'identityExpiryDate' | 'sex'; value: string; source: string; warning?: string }
 
 /** ICAO 9303 7/3/1 transcription check; it does not authenticate a document. */
 export function mrzCheckDigit(value: string) {
@@ -38,11 +38,25 @@ export function parseDocumentMrz(text: string): MrzValue[] {
     add('fullName', [clean(given), clean(family)].filter(Boolean).join(' '))
     add('surname', clean(family)); add('givenNames', clean(given))
     add(passport ? 'passportNumber' : 'cardNumber', clean(number))
+    if (!passport && first.value.slice(2, 5) === 'ARE' && /^784\d{12}$/.test(first.value.slice(15, 30))) add('emiratesId', first.value.slice(15, 30))
     add('issuingCountry', clean(first.value.slice(2, 5))); add('nationality', clean(nationality))
     // A two-digit year does not establish its century; keep the source value for correction.
     if (/^\d{6}$/.test(dob)) add('birthDate', dob, `${warning} The year has two digits; enter the full date as YYYY-MM-DD.`)
     if (/^\d{6}$/.test(expiry)) add('identityExpiryDate', expiry, `${warning} The year has two digits; enter the full date as YYYY-MM-DD.`)
     if (/^[MFX]$/.test(sex)) add('sex', sex)
+    return values
+  }
+  // The card front/back may be photographed separately. Recover only the
+  // checksum-protected number from an intact UAE first line, without inventing
+  // names or dates from damaged remaining lines.
+  for (const line of lines) {
+    if (!/^I[A-Z<]ARE[A-Z0-9<]{25}$/.test(line.value)) continue
+    const number = line.value.slice(5, 14)
+    if (mrzCheckDigit(number) !== Number(line.value[14])) continue
+    const warning = 'Only part of the machine-readable text could be read. Compare these numbers with the printed details.'
+    const values: MrzValue[] = [{ key: 'cardNumber', value: number.replace(/</g, '').trim(), source: line.source, warning }]
+    const id = line.value.slice(15, 30)
+    if (/^784\d{12}$/.test(id)) values.push({ key: 'emiratesId', value: id, source: line.source, warning })
     return values
   }
   return []

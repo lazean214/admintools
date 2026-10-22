@@ -75,9 +75,9 @@ test('identity transfer rejects role conflicts, malformed IDs and unsupported-on
   assert.throws(() => fieldsForEjari(number, 'tenant'), /no matching/)
   assert.deepEqual(reviewedDocumentFields(number), { passportNumber: 'EX123' })
 })
-test('does not consume another label as a missing field value or guess multi-column values', () => {
+test('does not consume another label as a missing value; explicit columns remain separate', () => {
   assert.deepEqual(extractDocumentFields('Owner name:\nTenant name: Jane\nAnnual rent: 1 | Deposit: 2').map(f => f.key), ['tenantName'])
-  assert.deepEqual(extractDocumentFields('Tenant name  Jane  Annual rent  10000'), [])
+  assert.deepEqual(extractDocumentFields('Tenant name  Jane  Annual rent  10000').map(f => [f.key, f.value]), [['tenantName','Jane'],['annualRentAed','10000']])
 })
 test('keeps conflicts for review, removes exact duplicates and rejects ambiguous transfer', () => {
   const fields = extractDocumentFields('Tenant name: Jane\nTenant name: Jane\nTenant name: John')

@@ -374,6 +374,7 @@ async function generateEjariPdf() {
             Property Type
             <select v-model="form.propertyType" class="field-control mt-1">
               <option value="">Select</option>
+              <option v-if="form.propertyType && !propertyTypeOptions.includes(form.propertyType)" :value="form.propertyType">{{ form.propertyType }}</option>
               <option v-for="type in propertyTypeOptions" :key="type" :value="type">{{ type }}</option>
             </select>
           </label>

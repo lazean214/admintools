@@ -4,6 +4,21 @@ Entries are listed newest first. Historical milestones are based on repository h
 
 ## Unreleased
 
+### 2026-10-22 - Identity and title-deed result cleanup
+
+- Grouped Emirates ID identity/card details and title-deed ownership/property/area/deed details.
+- Combined equivalent readings with source excerpts, retained conflicting values and separate owners, and converted only unambiguous full dates.
+- Made source excerpts expandable while retaining explicit review for every value.
+
+### 2026-10-22 - Sample-template layout handling
+
+- Added blank-template guards for unused labels, separator lines, date placeholders and default zero amounts.
+- Improved bilingual/possessive labels, split passport/ID headers, explicit PDF columns and common scan-label noise while retaining original source excerpts.
+- Added a title-deed profile for property/building/floor/parking details, area values with units, mortgage status and separate owner-table rows.
+- Recognized listing agreements as NOCs and prevented words in terms/footer paragraphs from being treated as field labels.
+- Added cautious recovery of checksum-protected identifiers from an intact UAE card first line when the remaining text is unreadable; no names or dates are inferred from damaged lines.
+- Compared local extraction against the supplied layouts and added synthetic regression tests without copying source PDFs or their contents into the repository.
+
 ### 2026-10-22 - Mixed-document extraction
 
 - Expanded the document extractor for passports, Emirates IDs, NOCs, property papers and other documents, with automatic recognition and a manual document-type selector.

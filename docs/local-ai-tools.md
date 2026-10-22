@@ -36,7 +36,7 @@ English Tesseract OCR. **Read as a scan** forces OCR for PDFs with unusable text
 
 This is OCR plus conservative label matching and document-specific parsing, not a
 hosted generative model. Select automatic recognition or a passport, Emirates ID,
-NOC, property or other-document profile. Identity details remain neutral until a
+NOC/listing agreement, title-deed, property or other-document profile. Identity details remain neutral until a
 user chooses whether that person is the tenant, lessor or owner. A new file clears
 suggestions and the identity role; documents are read one file/page at a time.
 
@@ -56,7 +56,7 @@ from its digits. See the [UAE identity authority's explanation](https://www.wam.
 NOCs support labeled references, subjects, company/property details and a
 conservative named-author/passport-number clause. Unfamiliar prose is left for
 manual review. Other documents can use supported common labels or manually added
-fields with source excerpts. English OCR remains the supported reading language;
+fields with source excerpts. English labels can be matched alongside Arabic translations and broken non-Latin PDF glyph runs; original excerpts remain available. Clearly separated PDF columns stay distinct. Blank template labels, rules, date placeholders and default zero amounts are skipped. Title-deed property areas retain square-metre/square-foot units without conversion; owner rows stay separate and conflicting selected owners block form transfer. Static terms/footer paragraphs are not treated as labels. English OCR remains the supported reading language;
 Arabic-only text requires manual entry. Use clear, upright images.
 
 Suggestions retain source snippets, start unselected, and can be edited. Editing
@@ -84,7 +84,7 @@ stops OCR, PDF loading and rendering, and stale results cannot replace new work.
 ## Verification
 
 ```sh
-node --experimental-strip-types --import ./scripts/register-types.mjs --test tests/document-fields.test.mjs tests/document-identity-ocr.test.mjs tests/smart-selection.test.mjs
+node --experimental-strip-types --import ./scripts/register-types.mjs --test tests/document-fields.test.mjs tests/document-template-layout.test.mjs tests/document-identity-ocr.test.mjs tests/smart-selection.test.mjs
 npm run typecheck:processing
 npm run typecheck:app
 npm run build
@@ -98,3 +98,12 @@ node --experimental-strip-types scripts/check-smart-selection.mjs
 
 The native check verifies the pinned model's processor/output contract and object
 mask selection. Browser WASM execution is checked separately in the live editor.
+
+## Layout sample validation
+
+The supplied tenancy, listing/NOC, scanned-card and title-deed layouts were
+inspected locally. Source PDFs, rendered pages and OCR text stay in ignored
+`tmp/pdfs/` and are not test fixtures. Regression cases use synthetic strings.
+Blank form labels/default amounts are skipped; printed publisher/contact details
+can still appear as generic suggestions and must be reviewed. A blank template
+establishes layout coverage, not recognition accuracy for every completed scan.
