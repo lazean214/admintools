@@ -35,7 +35,7 @@
     "@tesseract.js-data/eng": "1.0.0",
     "jszip": "^3.10.1",
     "markdown-it": "^14.1.1",
-    "markdown-it-anchor": "^9.2.0",
+    "markdown-it-anchor": "^10.0.0",
     "onnxruntime-web": "^1.30.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.4.299",
