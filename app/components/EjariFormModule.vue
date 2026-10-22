@@ -3,6 +3,27 @@ import { ejariFields } from '../utils/ejari'
 import { renderEjariPages } from '../utils/ejari-render'
 import { loadEjariTemplate } from '../utils/ejari-template'
 import { ProcessingClient, ProcessingCancelledError } from '../utils/processing-client'
+import { ejariFieldDefinitions, reviewedDocumentFields } from '../utils/document-fields'
+import type { ReviewedEjariFields } from '../utils/document-fields'
+
+const pendingImport = useState<ReviewedEjariFields | null>('reviewed-ejari-import', () => null)
+const pendingFieldLabels = computed(() => ejariFieldDefinitions.filter(field => pendingImport.value?.[field.key]).map(field => field.label))
+
+function applyReviewedImport() {
+  if (!pendingImport.value) return
+  try {
+    const values = reviewedDocumentFields(ejariFieldDefinitions.filter(field => pendingImport.value?.[field.key]).map(field => ({ key: field.key, label: field.label, value: pendingImport.value![field.key]!, source: '', selected: true })))
+    let applied = 0, skipped = 0
+    for (const field of ejariFieldDefinitions) {
+      const value = values[field.key]
+      if (!value) continue
+      if (form[field.key].trim()) { skipped++; continue }
+      form[field.key] = value; applied++
+    }
+    pendingImport.value = null
+    setStatus(`Applied ${applied} reviewed ${applied === 1 ? 'field' : 'fields'}.${skipped ? ` Kept ${skipped} existing ${skipped === 1 ? 'value' : 'values'}.` : ''} Check the form before exporting.`)
+  } catch (error) { setStatus(error instanceof Error ? error.message : 'Could not apply the reviewed fields.') }
+}
 
 const exporter = new ProcessingClient(() => new Worker(new URL('../workers/ejari.worker.ts', import.meta.url), { type:'module' }))
 let exportGeneration = 0
@@ -198,6 +219,15 @@ async function generateEjariPdf() {
 <template>
   <section class="module-surface">
     <h2 class="module-title text-2xl font-bold">EJARI Form</h2>
+    <div v-if="pendingImport" class="mt-4 rounded-xl border border-teal-300 bg-teal-50 p-4">
+      <h3 class="font-bold text-slate-900">Reviewed document details are ready</h3>
+      <p class="mt-2 text-sm text-slate-700">{{ pendingFieldLabels.join(', ') }}. Apply these to empty fields, then check the form. Existing values will be kept.</p>
+      <div class="mt-3 flex flex-wrap gap-2">
+        <button type="button" class="btn-primary" @click="applyReviewedImport">Apply reviewed fields</button>
+        <button type="button" class="btn-secondary" @click="pendingImport = null">Discard import</button>
+      </div>
+    </div>
+    <NuxtLink to="/document-field-extractor" class="mt-3 inline-block text-sm font-semibold text-teal-800 underline underline-offset-4">Read details from a document</NuxtLink>
     <p class="mt-2 text-sm text-slate-600">
       Complete the EJARI fields and export using the official template.
     </p>

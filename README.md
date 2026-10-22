@@ -109,7 +109,7 @@ The EJARI source uses generated JSON/base64 transport to avoid download managers
 
 ## Image Object Remover
 
-Open `/image-object-remover`, choose an image, and paint over an unwanted object and its shadow or select a rectangle. Use **Erase selection** to refine the marked area, then **Remove object**. Undo restores the previous image; **Download Result** exports a PNG without the selection overlay. The former `/watermark-remover` URL redirects to the new editor.
+Open `/image-object-remover`, choose an image, and paint over an unwanted object and its shadow or select a rectangle. Choose **Smart select** and click an object to select it automatically, or use the manual tools. Use **Erase selection** to refine the marked area, then **Remove object**. Undo restores the previous image; **Download Result** exports a PNG without the selection overlay. The former `/watermark-remover` URL redirects to the new editor.
 
 **Smart removal** runs LaMa AI in a browser worker through ONNX Runtime Web, trying WebGPU with WASM fallback. **Texture repair** uses the existing Rust/WASM algorithm without a model download. Photos and selections stay on the device in both modes.
 
@@ -123,7 +123,39 @@ See [object remover implementation notes](docs/image-object-remover.md) for the 
 node scripts/check-object-model.mjs path/to/lama_fp32.onnx
 ```
 
-The latest implementation passed 31 processing tests, app/processing type checks, a production build and a real WASM inference check. Browser visual verification and WebGPU execution have not yet been confirmed on a target device.
+The initial removal integration passed processing tests, app/processing type checks, a production build and a real LaMa WASM inference check. Smart selection has also been verified in the browser using WASM. WebGPU execution remains unverified on a target device.
+
+## Document Field Extractor
+
+Open `/document-field-extractor` to read a PDF page, PNG, JPG or WebP, or paste document text. Choose automatic recognition or select the document type. PDFs use embedded text when available; scans and images use local English OCR. Choose **Read as a scan** when a PDF's embedded text is unusable.
+
+| Document | Supported suggestions |
+| --- | --- |
+| Passport | Names, passport number, nationality, issuing country, birth/expiry dates and standard machine-readable text |
+| Emirates ID | Neutral holder name, Emirates ID number, nationality, printed dates and supported card text |
+| NOC / authorization letter | References, subject, company/property details and supported named-author/passport-number clauses |
+| Property / tenancy document | Explicit owner/lessor/tenant details, property identifiers, contract dates, rent and deposit |
+| Other document | Supported common labels and manually added fields with source excerpts |
+
+1. Read one document/page or paste its text, then inspect the suggestions beside their source excerpts.
+2. Correct values and mark only checked fields **Reviewed and ready to use**. Add missing supported fields manually with a source excerpt.
+3. Download reviewed fields as JSON, or choose the person's role and use matching fields in EJARI. EJARI asks you to apply the import and fills only empty fields.
+
+Identity names remain neutral until you explicitly choose **tenant**, **lessor** or **owner**. Passport numbers never fill Emirates ID fields. Nationality, birth dates, passport/card numbers and other unmatched details are available in the download; owner IDs have no separate EJARI field. Conflicting values block transfer.
+
+Use clear, upright images. Reading supports printed English; Arabic-only text requires manual entry. Machine-readable text checks detect some transcription errors and do not establish document authenticity. Two-digit years require a full date entered as YYYY-MM-DD. Enter amounts without currency or commas. Unsupported layouts, unclear text and missing labels may need manual correction.
+
+Limits: **32 MB/file**, PDFs up to **100 pages**, images up to **12 megapixels** and **16,384 pixels per side**, **100,000 text characters** and **300 characters per field**. Reading one file/page at a time keeps documents separate; choosing another file clears the previous suggestions and role. Temporary imports are lost on reload.
+
+Document reading and smart selection are **free**, require no paid API, API key or account, and process document/image contents locally. Smart selection downloads a separate free model on first use. Document extraction uses OCR, label matching and document-specific parsing. See [local AI tool notes](docs/local-ai-tools.md) for implementation details and model attribution.
+
+Focused document checks:
+
+```sh
+node --experimental-strip-types --import ./scripts/register-types.mjs --test tests/document-fields.test.mjs tests/document-identity-ocr.test.mjs
+```
+
+The checks cover passport/card parsing, Emirates ID recognition, NOC clauses, explicit role mapping and local OCR on clearly marked synthetic images. Browser checks confirmed role selection is required and only the matching name/Emirates ID fields transfer to EJARI. App/processing type checks and the production build also passed. These checks do not guarantee every real-world document layout is readable.
 
 ## Image resizing
 
@@ -154,6 +186,6 @@ The shared production limiter enforces 30 login attempts per 15 minutes and 10 r
 
 ## Main routes
 
-`/agent-to-agent-form`, `/listing-noc-form`, `/ejari-form`, `/pdf-editor`, `/pdf-compression`, `/pdf-image-extractor`, `/image-resize`, `/e-signature`, `/watermark`, `/image-object-remover`, `/real-estate-guide`, `/profile-settings`, `/login`, `/register`, `/contact`.
+`/agent-to-agent-form`, `/listing-noc-form`, `/ejari-form`, `/pdf-editor`, `/pdf-compression`, `/pdf-image-extractor`, `/document-field-extractor`, `/image-resize`, `/e-signature`, `/watermark`, `/image-object-remover`, `/real-estate-guide`, `/profile-settings`, `/login`, `/register`, `/contact`.
 
 Protected operations are enforced by API authorization, not only page middleware. Sessions use HttpOnly, SameSite=Lax cookies with Secure enabled in production. Authentication JSON bodies have a 32 KiB limit and a 10-second read deadline.

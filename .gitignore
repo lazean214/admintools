@@ -6,6 +6,7 @@
 .cache
 public/ocr/
 public/onnx/
+public/onnx-selection/
 dist
 
 # Node dependencies

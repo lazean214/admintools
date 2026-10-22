@@ -20,6 +20,7 @@ const toolLinks = [
   { label: 'PDF Editor', to: '/pdf-editor' },
   { label: 'PDF Compress', to: '/pdf-compression' },
   { label: 'PDF Extract', to: '/pdf-image-extractor' },
+  { label: 'Read Document', to: '/document-field-extractor' },
   { label: 'Resize', to: '/image-resize' },
   { label: 'E-Sign', to: '/e-signature' },
   { label: 'Watermark', to: '/watermark' },

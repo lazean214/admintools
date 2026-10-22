@@ -24,13 +24,14 @@
     "start": "node .output/server/index.mjs",
     "security:secrets": "node scripts/check-secrets.mjs --history",
     "test:security": "node --experimental-strip-types --import ./scripts/register-types.mjs --test tests/security.test.mjs tests/database-security.test.mjs",
-    "test": "node --experimental-strip-types --import ./scripts/register-types.mjs --test tests/processing.test.mjs tests/pdf-compression.test.mjs tests/ejari.test.mjs tests/auth.test.mjs tests/auth-body.test.mjs tests/pdf-editor.test.mjs tests/pdf-ocr.test.mjs tests/security.test.mjs tests/database-security.test.mjs",
+    "test": "node --experimental-strip-types --import ./scripts/register-types.mjs --test tests/processing.test.mjs tests/document-fields.test.mjs tests/document-identity-ocr.test.mjs tests/smart-selection.test.mjs tests/pdf-compression.test.mjs tests/ejari.test.mjs tests/auth.test.mjs tests/auth-body.test.mjs tests/pdf-editor.test.mjs tests/pdf-ocr.test.mjs tests/security.test.mjs tests/database-security.test.mjs",
     "audit:production": "npm audit --omit=dev --audit-level=high",
     "typecheck:app": "vue-tsc --project .nuxt/tsconfig.app.json --noEmit",
     "security:bundle": "node scripts/check-secrets.mjs --public-build",
     "test:pdf-compression": "node --experimental-strip-types --import ./scripts/register-types.mjs --test tests/pdf-compression.test.mjs"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.3.1",
     "@supabase/supabase-js": "^2.103.0",
     "@tesseract.js-data/eng": "1.0.0",
     "jszip": "^3.10.1",

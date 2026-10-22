@@ -64,6 +64,13 @@ const baseModules = [
     icon: 'M12 20h9M16.5 3.5a2.12 2.12 0 013 3L9 17l-4 1 1-4L16.5 3.5z'
   },
   {
+    title: 'Document Field Extractor',
+    description: 'Read passports, Emirates IDs, NOCs and property documents locally, then review the suggested details.',
+    path: '/document-field-extractor',
+    action: 'Read Document',
+    icon: 'M9 12h6m-6 4h6M9 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V9l-6-6H9zm4 0v6h6'
+  },
+  {
     title: 'PDF Compression',
     description: 'Reduce PDF file size locally, preserve selectable text, and compare before and after sizes.',
     path: '/pdf-compression',
@@ -112,7 +119,7 @@ const activeCategory = ref('All tools')
 const categories = ['All tools', 'Real estate forms', 'PDF tools', 'Image & signature']
 const groups = [
   { title: 'Real estate forms', description: 'Prepare the paperwork for your next transaction.', paths: ['/agent-to-agent-form', '/listing-noc-form', '/ejari-form'] },
-  { title: 'PDF tools', description: 'Edit, compress, and get more from your documents.', paths: ['/pdf-editor', '/pdf-compression', '/pdf-image-extractor'] },
+  { title: 'PDF tools', description: 'Edit, compress, and get more from your documents.', paths: ['/pdf-editor', '/pdf-compression', '/pdf-image-extractor', '/document-field-extractor'] },
   { title: 'Image & signature', description: 'Get your photos and signatures ready to use.', paths: ['/image-resize', '/e-signature', '/watermark', '/image-object-remover'] }
 ]
 const visibleGroups = computed(() => groups

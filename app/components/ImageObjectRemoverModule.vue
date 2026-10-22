@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ProcessingClient, ProcessingCancelledError } from '../utils/processing-client'
 import { retainUndo, validateDimensions, validateRemoval } from '../utils/processing'
+import { SmartSelectionClient } from '../utils/smart-selection'
 
 const processor = new ProcessingClient(() => new Worker(new URL('../workers/processing.worker.ts', import.meta.url), { type: 'module' }))
+const selector = new SmartSelectionClient()
 let loadGeneration = 0
 let disposed = false
 const loading = ref(false)
@@ -14,7 +16,7 @@ const removePreview = ref('')
 const selecting = ref(false)
 const brushSize = ref(28)
 const engine = ref<'ai' | 'texture'>('ai')
-const selectionMode = ref<'brush' | 'rect' | 'erase'>('brush')
+const selectionMode = ref<'brush' | 'rect' | 'erase' | 'smart'>('brush')
 let selectStartX = 0
 let selectStartY = 0
 let rectSelection: { x: number; y: number; w: number; h: number } | null = null
@@ -146,6 +148,7 @@ function initMaskCanvas() {
 async function onRemoveFileChange(event: Event) {
   const generation = ++loadGeneration
   processor.cancel()
+  selector.cancel()
   const target = event.target as HTMLInputElement
   const file = target.files?.[0] ?? null
   removePreview.value = ''
@@ -250,6 +253,7 @@ function clearMask() {
 
 function startSelect(event: PointerEvent) {
   if (!removeCanvas.value || processing.value) return
+  if (selectionMode.value === 'smart') { void selectObject(getCanvasPoint(event)); return }
   selecting.value = true
   const point = getCanvasPoint(event)
   lastPoint = point
@@ -267,6 +271,48 @@ function startSelect(event: PointerEvent) {
     selectStartY = point.y
     rectSelection = { x: point.x, y: point.y, w: 0, h: 0 }
   }
+}
+
+async function selectObject(point: { x: number; y: number }) {
+  if (processing.value || !removeSourceImage || !removeCanvas.value || !maskCtx || !maskCanvas.value) return
+  processing.value = true
+  selecting.value = false
+  try {
+    const { width, height } = removeCanvas.value
+    const scale = Math.min(1, 1024 / Math.max(width, height))
+    const small = document.createElement('canvas')
+    small.width = Math.max(1, Math.round(width * scale)); small.height = Math.max(1, Math.round(height * scale))
+    const context = small.getContext('2d')
+    if (!context) throw new Error('Could not select the object. Use the brush instead.')
+    context.drawImage(removeSourceImage, 0, 0, small.width, small.height)
+    setStatus('Finding your object…')
+    const mask = await selector.select({
+      rgba: context.getImageData(0, 0, small.width, small.height).data.buffer as ArrayBuffer,
+      width: small.width, height: small.height,
+      x: Math.max(0, Math.min(small.width - 1, point.x * small.width / width)),
+      y: Math.max(0, Math.min(small.height - 1, point.y * small.height / height))
+    }, setStatus)
+    if (disposed) return
+    const selected = new Uint8Array(width * height)
+    const overlay = maskCtx.createImageData(width, height)
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      const i = y * width + x
+      if (!mask[Math.floor(y * small.height / height) * small.width + Math.floor(x * small.width / width)]) continue
+      selected[i] = 1
+      overlay.data.set([255, 255, 255, 255], i * 4)
+    }
+    // Reject oversized selections before replacing the user's previous mask.
+    const source = document.createElement('canvas'); source.width = width; source.height = height
+    const sourceContext = source.getContext('2d')
+    if (!sourceContext) throw new Error('Could not read the image.')
+    sourceContext.drawImage(removeSourceImage, 0, 0)
+    validateRemoval(new Uint8Array(sourceContext.getImageData(0, 0, width, height).data.buffer), selected, width, height)
+    maskCtx.putImageData(overlay, 0, 0)
+    rectSelection = null; checkHasSelection(); redrawRemoveCanvas()
+    setStatus('Object selected. Refine with the brush or eraser, then remove it.')
+  } catch (error) {
+    if (!disposed) setStatus(error instanceof Error ? error.message : 'Could not select this object. Use the brush instead.')
+  } finally { processing.value = false }
 }
 
 function moveSelect(event: PointerEvent) {
@@ -361,12 +407,14 @@ async function applyObjectRemoval() {
 
 function cancelRemoval() {
   processor.cancel()
+  selector.cancel()
 }
 
 onBeforeUnmount(() => {
   disposed = true
   loadGeneration++
   processor.cancel()
+  selector.cancel()
   undoStack.value = []
   removeSourceImage = null
   maskCanvas.value = null
@@ -428,7 +476,14 @@ async function downloadRemovedResult() {
     <!-- Toolbar -->
     <div v-if="removePreview" class="mt-4 flex flex-wrap items-center gap-3 rounded-2xl bg-white/60 px-4 py-3">
       <!-- Mode Toggle -->
-      <div class="flex overflow-hidden rounded-lg border border-slate-300 text-xs font-bold">
+      <div class="flex flex-wrap overflow-hidden rounded-lg border border-slate-300 text-xs font-bold">
+        <button
+          class="px-3 py-1.5 transition-colors"
+          :class="selectionMode === 'smart' ? 'bg-teal-700 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'"
+          :aria-pressed="selectionMode === 'smart'"
+          :disabled="processing"
+          @click="selectionMode = 'smart'"
+        >Smart select</button>
         <button
           class="px-3 py-1.5 transition-colors"
           :class="selectionMode === 'brush' ? 'bg-teal-700 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'"
@@ -456,7 +511,7 @@ async function downloadRemovedResult() {
       </div>
 
       <!-- Brush Size Slider -->
-      <div v-if="selectionMode !== 'rect'" class="flex items-center gap-2 text-xs text-slate-600">
+      <div v-if="selectionMode === 'brush' || selectionMode === 'erase'" class="flex items-center gap-2 text-xs text-slate-600">
         <span class="font-semibold">Size</span>
         <input
           v-model.number="brushSize"
@@ -488,6 +543,8 @@ async function downloadRemovedResult() {
       </div>
     </div>
 
+    <p v-if="removePreview && selectionMode === 'smart'" class="mt-3 text-sm text-slate-600">Click the object you want to select. Each click replaces the selection. First use may take a few minutes. With the image focused, press Enter to select its center.</p>
+
     <!-- Canvas Area -->
     <div class="relative mt-4 overflow-auto rounded-2xl border border-slate-300 bg-slate-50 p-3">
       <!-- Processing overlay -->
@@ -509,6 +566,9 @@ async function downloadRemovedResult() {
       <canvas
         v-show="removePreview"
         ref="removeCanvas"
+        tabindex="0"
+        aria-label="Image editing area. In Smart select mode, click an object or press Enter to select the center."
+        @keydown.enter.prevent="selectionMode === 'smart' && removeCanvas && selectObject({ x: removeCanvas.width / 2, y: removeCanvas.height / 2 })"
         class="mx-auto max-h-[520px] max-w-full touch-none"
         :class="[
           processing ? 'pointer-events-none opacity-50' : '',

@@ -4,6 +4,28 @@ Entries are listed newest first. Historical milestones are based on repository h
 
 ## Unreleased
 
+### 2026-10-22 - Mixed-document extraction
+
+- Expanded the document extractor for passports, Emirates IDs, NOCs, property papers and other documents, with automatic recognition and a manual document-type selector.
+- Added neutral identity/contact/reference fields, TD3 passport and TD1 card text parsing, transcription-check warnings and conservative NOC author/passport-number extraction.
+- Added Emirates ID number recognition without deriving birth dates from ID digits. Kept card numbers, passport numbers and Emirates IDs distinct.
+- Required an explicit person role for identity transfers into EJARI. Only matching fields transfer; unmatched details can be downloaded, and passport numbers never fill Emirates ID fields.
+- Added manually entered fields with source excerpts, explicit date-century review and tests using public/synthetic specimen data.
+- Kept all document processing local and free, with English OCR and one-document/page-at-a-time limits stated in the interface.
+- Verified passport/ID/NOC parsing and OCR on synthetic images, reviewed-role transfer in the browser, app/processing type checks and the production build.
+- Expanded README documentation with a document-support table, the read/review/export workflow, explicit identity-role mapping, processing limits and focused validation commands. Documented Arabic-only/manual-entry limits and the distinction between transcription checks and document authentication.
+
+### 2026-10-22 - Free local smart tools
+
+- Added click-to-select object masks with a pinned, quantized SlimSAM model running in a browser worker. Preserved manual brush/eraser refinement and explicit removal.
+- Added a Document Field Extractor for PDFs, images and pasted text, using local English OCR and conservative label matching.
+- Added editable, source-backed suggestions, explicit review checkboxes, conflict/date/amount validation, reviewed JSON export and a temporary handoff into EJARI.
+- EJARI applies reviewed imports only to empty fields and offers an explicit discard action.
+- Added cancellation, stale-result protection, bounded document/image inputs, model asset preparation and focused extraction/selection tests.
+- Both features require no paid API, API key or account. Content stays local; smart selection downloads free model files on first use.
+- Added implementation documentation and an optional real-model segmentation smoke test.
+- Validation: 43 focused processing/OCR/extraction/selection tests, app/processing type checks and the final production build passed. Browser checks confirmed smart selection, PDF text extraction, local scan OCR and reviewed-field transfer preserving existing EJARI values.
+
 ### 2026-10-22 - Image Object Remover
 
 - Replaced Watermark Remover with Image Object Remover at `/image-object-remover`; redirected the former route and updated dashboard/navigation labels.
