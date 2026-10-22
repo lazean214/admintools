@@ -23,7 +23,7 @@ const toolLinks = [
   { label: 'Resize', to: '/image-resize' },
   { label: 'E-Sign', to: '/e-signature' },
   { label: 'Watermark', to: '/watermark' },
-  { label: 'Watermark Remover', to: '/watermark-remover' }
+  { label: 'Image Object Remover', to: '/image-object-remover' }
 ]
 
 function isActive(path: string) {

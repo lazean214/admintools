@@ -68,6 +68,12 @@ workerScope.onmessage = async (event: MessageEvent<RemovalRequest | ResizeReques
     const { mask, seed } = event.data
     if (!(mask instanceof ArrayBuffer)) throw new Error('Invalid processing buffers.')
     const pixels = new Uint8Array(rgba)
+    if (event.data.engine === 'ai') {
+      const { inpaintObjects } = await import('../utils/object-inpainting')
+      await inpaintObjects(pixels, new Uint8Array(mask), width, height, (phase) => send({ id, type: 'progress', phase }))
+      send({ id, type: 'result', rgba }, [rgba])
+      return
+    }
     const crop = cropRemoval(pixels, new Uint8Array(mask), width, height)
     const output = remove_watermark(crop.pixels, crop.selection, crop.width, crop.height, seed, (phase: string) => {
       send({ id, type: 'progress', phase })

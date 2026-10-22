@@ -5,6 +5,7 @@
 .nitro
 .cache
 public/ocr/
+public/onnx/
 dist
 
 # Node dependencies

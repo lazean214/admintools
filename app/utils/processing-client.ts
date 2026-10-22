@@ -87,7 +87,7 @@ export class ProcessingClient {
         const id = ++this.nextId
         this.pending = {
           id, bytes, kind, resolve, reject, progress,
-          timer: setTimeout(() => this.fail(new Error('Processing took too long. Try a smaller selection.')), 120_000)
+          timer: setTimeout(() => this.fail(new Error('Processing took too long. Try a smaller selection.')), ('engine' in input && input.engine === 'ai') ? 600_000 : 120_000)
         }
         this.worker.postMessage({ ...input, id }, transfer)
       } catch (error) {

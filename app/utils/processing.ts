@@ -6,6 +6,7 @@ export const MAX_UNDO_BYTES = 64 * 1024 * 1024
 
 export type RemovalRequest = {
   operation?: 'remove'
+  engine?: 'ai' | 'texture'
   id: number
   width: number
   height: number

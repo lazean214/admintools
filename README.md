@@ -1,6 +1,6 @@
 # AdminTools - Real Estate Web Tools
 
-[Live application](https://admintools.vercel.app/) · [GitHub repository](https://github.com/lazean214/admintools) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md)
+[Live application](https://admintools.vercel.app/) Â· [GitHub repository](https://github.com/lazean214/admintools) Â· [Changelog](CHANGELOG.md) Â· [Security](SECURITY.md)
 
 Nuxt 4 tools for real estate documents, PDF editing, local OCR, images and a role-based article guide. Rust/WASM handles document and image processing in browser workers; authentication and stored content use server-side Supabase access.
 
@@ -9,7 +9,7 @@ Nuxt 4 tools for real estate documents, PDF editing, local OCR, images and a rol
 - Form I / Agent-to-Agent, Listing NOC and EJARI template workflows.
 - PDF editor: supported original text replacement, selectable added text, images, visual signatures, shapes, highlights, links, page rotation/reordering/deletion and undo/redo.
 - English OCR: review and correct recognized lines, then reconstruct the current scanned page as actual editable PDF text.
-- PDF image extraction, image resizing, watermark placement/removal and e-signature images.
+- PDF compression with selectable text preserved, PDF image extraction, image resizing, watermark placement, AI object removal and e-signature images.
 - Saved company profile defaults and a Markdown real estate guide.
 - Viewer, editor and administrator roles; password and optional Google sign-in.
 
@@ -53,7 +53,7 @@ For Google sign-in, register these exact callback paths against your chosen doma
 npm run dev
 ```
 
-The normal development/build commands prepare the pinned EJARI JSON transport and self-hosted OCR assets. Generated OCR worker/core/model files live in ignored `public/ocr/v7/`; install dependencies before running `node scripts/prepare-assets.mjs` directly.
+The normal development/build commands prepare the pinned EJARI JSON transport, self-hosted OCR assets and ONNX runtime assets. ONNX runtime files are generated in ignored `public/onnx/`; the object removal model downloads separately on first use. Generated OCR worker/core/model files live in ignored `public/ocr/v7/`; install dependencies before running `node scripts/prepare-assets.mjs` directly.
 
 ## Production and Vercel
 
@@ -101,11 +101,33 @@ Original PDF text editing depends on its font encoding and available glyphs. Nes
 | Edits/export | 400 edits, 500 low-level operations, 128 MB completed PDF |
 | Editor images | 8 MB/file, 12 megapixels; 16 retained assets / 64 MB |
 | OCR | 12 megapixels, 8192 pixels per side, 400 lines, 150-second worker timeout |
-| Watermark removal | 12 megapixels; 250000 selected pixels within a 1-megapixel bounding box; 64 MiB undo budget |
+| Image object removal | 12 megapixels; 250000 selected pixels within a 1-megapixel bounding box; 64 MiB undo budget |
 
 Browser workers are terminated on cancellation, and document sessions release their resources. PDFs and images used by these local processing tools stay in the browser. Saved profiles and guide content are intentionally sent to the application server and Supabase.
 
 The EJARI source uses generated JSON/base64 transport to avoid download managers intercepting an internal PDF request. Completed exports use explicit download links. Run `scripts/generate-ejari-template-data.mjs` after intentionally changing the pinned template and update the corresponding fixture checks.
+
+## Image Object Remover
+
+Open `/image-object-remover`, choose an image, and paint over an unwanted object and its shadow or select a rectangle. Use **Erase selection** to refine the marked area, then **Remove object**. Undo restores the previous image; **Download Result** exports a PNG without the selection overlay. The former `/watermark-remover` URL redirects to the new editor.
+
+**Smart removal** runs LaMa AI in a browser worker through ONNX Runtime Web, trying WebGPU with WASM fallback. **Texture repair** uses the existing Rust/WASM algorithm without a model download. Photos and selections stay on the device in both modes.
+
+The first smart edit downloads approximately **208 MB** of model weights from Hugging Face and may take several minutes. The browser caches the model when storage is available; clearing or evicting browser storage requires another download. Internet access is required for that download. Progress messages use plain language without runtime or model details.
+
+AI processes a surrounding crop at 512 by 512 resolution and copies only selected RGB pixels back, preserving unselected pixels and original alpha. Large objects and fine details can produce imperfect results; remove one object at a time and review the result. Input is limited to 32 MB and 12 megapixels, with the selection and undo limits listed above.
+
+See [object remover implementation notes](docs/image-object-remover.md) for the pinned model revision, attribution and runtime setup. For an optional real-model WASM smoke test using an already downloaded model:
+
+```sh
+node scripts/check-object-model.mjs path/to/lama_fp32.onnx
+```
+
+The latest implementation passed 31 processing tests, app/processing type checks, a production build and a real WASM inference check. Browser visual verification and WebGPU execution have not yet been confirmed on a target device.
+
+## Image resizing
+
+The resize tool supports crop/fit, rotation, flipping, saved browser presets, output quality and target file sizes. Canvas is the standard processing path; Rust Lanczos is available as an optional quality choice. A requested file-size target may be unattainable for the chosen image and format.
 
 ## Rust/WASM development
 
@@ -126,12 +148,12 @@ See [Rust/WASM audit](RUST_WASM_AUDIT.md), [resize benchmarks](RESIZE_BENCHMARK.
 
 Read [SECURITY.md](SECURITY.md) before publishing or deploying. The secret check scans the working tree, index and reachable Git history and prints locations/rule names without secret values. It is a heuristic, not proof that every credential or personal detail has been identified. Manually review PDFs, screenshots and other binary assets before publishing them.
 
-`npm run audit:production` checks production dependencies and currently reports zero advisories. The full development dependency audit still reports two unpatched upstream advisories propagated through the build tools: `braces` 3.0.3 and `node-forge` 1.4.0. Nuxt/Tailwind and type/test tools are development dependencies; the release bundle check also rejects these two packages if they appear in the deployed server dependency list. This distinction does not make the development advisories disappear. Use trusted build inputs and monitor upstream fixes; do not use `npm audit fix --force` to downgrade the framework indiscriminately.
+`npm run audit:production` checks the current production dependency graph. Run it before each deployment; earlier clean audit results do not describe the updated dependencies. The latest ONNX Runtime installation reported 14 high-severity findings across the full dependency graph, without separating production from development findings. Consult the current audit output and [SECURITY.md](SECURITY.md) when assessing deployment readiness. Do not use `npm audit fix --force` to downgrade the framework indiscriminately.
 
 The shared production limiter enforces 30 login attempts per 15 minutes and 10 registration attempts per hour per hashed client address across instances. Local development retains bounded in-process throttling. Vercel's overwritten client-IP header is trusted only in Vercel's runtime; self-hosted proxies require an explicit trust list. Database failures fail closed. This is not a substitute for an edge firewall against volumetric abuse.
 
 ## Main routes
 
-`/agent-to-agent-form`, `/listing-noc-form`, `/ejari-form`, `/pdf-editor`, `/pdf-image-extractor`, `/image-resize`, `/e-signature`, `/watermark`, `/watermark-remover`, `/real-estate-guide`, `/profile-settings`, `/login`, `/register`, `/contact`.
+`/agent-to-agent-form`, `/listing-noc-form`, `/ejari-form`, `/pdf-editor`, `/pdf-compression`, `/pdf-image-extractor`, `/image-resize`, `/e-signature`, `/watermark`, `/image-object-remover`, `/real-estate-guide`, `/profile-settings`, `/login`, `/register`, `/contact`.
 
 Protected operations are enforced by API authorization, not only page middleware. Sessions use HttpOnly, SameSite=Lax cookies with Secure enabled in production. Authentication JSON bodies have a 32 KiB limit and a 10-second read deadline.
