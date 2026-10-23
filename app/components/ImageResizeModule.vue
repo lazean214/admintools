@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import JSZip from 'jszip'
+import { PHOTO_ACCEPT, isRawPhoto } from '../utils/photo-formats'
+import { decodePhoto } from '../utils/photo-decode'
 import { ProcessingClient, ProcessingCancelledError } from '../utils/processing-client'
 import { imageResizeRegion, validateDimensions } from '../utils/processing'
 import { encodeImageWithinSize, imageUpscaleFactor, orientedImageSize, rotateImageOrientation, parseImageResizePresets, validateImageResizeSettings, IMAGE_PRESET_STORAGE_KEY, type ImageResizeSettings, type SavedImagePreset } from '../utils/image-resize'
@@ -7,6 +9,8 @@ import { encodeImageWithinSize, imageUpscaleFactor, orientedImageSize, rotateIma
 type ResizePreviewImage = { id: string; name: string; previewUrl: string; width: number; height: number; sizeKb: number; cropX: number; cropY: number; cropScale: number; originalWidth: number; originalHeight: number; rotation: number; flipX: boolean; flipY: boolean }
 const status = ref('Ready')
 const resizeFiles = ref<File[]>([])
+let decodedFiles: Blob[] = []
+let cancelDecode: (() => void) | undefined
 const resizeWidth = ref(1920)
 const resizeHeight = ref(1080)
 const resolutionPresets = [
@@ -33,7 +37,7 @@ function outputSize(image: ResizePreviewImage) {
   return targetWidth + ' × ' + targetHeight + ' px'
 }
 const resizeFormat = ref<'original' | 'png' | 'jpg' | 'webp'>('original')
-const resizeMethod = ref<'standard' | 'lanczos'>('standard')
+const resizeMethod = ref<'standard' | 'lanczos'>('lanczos')
 const resizeQuality = ref(90)
 const targetSizeKb = ref(0)
 const savedPresets = ref<SavedImagePreset[]>([])
@@ -201,13 +205,13 @@ function downloadBlob(blob: Blob, fileName: string) {
   anchor.remove()
   URL.revokeObjectURL(url)
 }
-async function readImage(file: File): Promise<HTMLImageElement> {
+async function readImage(file: Blob): Promise<HTMLImageElement> {
   const url = URL.createObjectURL(file)
   try {
     return await new Promise((resolve, reject) => {
       const image = new Image()
       image.onload = () => resolve(image)
-      image.onerror = () => reject(new Error('Could not load ' + file.name + '.'))
+      image.onerror = () => reject(new Error('Could not load this photo.'))
       image.src = url
     })
   } finally { URL.revokeObjectURL(url) }
@@ -221,13 +225,17 @@ function clearResizePreviews() {
 }
 async function onResizeFilesChange(event: Event) {
   if (resizeBusy.value) return
+  cancelDecode?.()
   const current = ++generation
   const target = event.target as HTMLInputElement
   const files = target.files ? Array.from(target.files) : []
   const previews: ResizePreviewImage[] = []
+  const decoded: Blob[] = []
+  let decodedBytes = 0
   let published = false
   clearResizePreviews()
   resizeFiles.value = []
+  decodedFiles = []
   resizeLoading.value = true
   setStatus('Loading previews…')
   try {
@@ -236,13 +244,30 @@ async function onResizeFilesChange(event: Event) {
     }
     // Decode one at a time instead of holding every full-resolution image at once.
     for (const [index, file] of files.entries()) {
-      const image = await readImage(file)
+      setStatus('Loading photo ' + (index + 1) + ' of ' + files.length + '…')
+      let source: Blob = file
+      let image: HTMLImageElement
+      try {
+        if (isRawPhoto(file.name)) throw new Error('RAW needs the photo decoder.')
+        image = await readImage(file)
+      } catch {
+        if (disposed || generation !== current) return
+        const task = decodePhoto(file)
+        cancelDecode = task.cancel
+        try { source = await task.result } finally { cancelDecode = undefined }
+        if (disposed || generation !== current) return
+        image = await readImage(source)
+      }
+      decodedBytes += source.size
+      if (decodedBytes > 128 * 1024 * 1024) throw new Error('Decoded photos exceed 128 MB. Select fewer images at a time.')
+      decoded.push(source)
       if (disposed || generation !== current) return
       validateDimensions(image.width, image.height)
-      previews.push({ id: String(index), name: file.name, previewUrl: URL.createObjectURL(file), width: image.width, height: image.height, sizeKb: Math.max(1, Math.round(file.size / 1024)), cropX: 50, cropY: 50, cropScale: 1, originalWidth: image.width, originalHeight: image.height, rotation: 0, flipX: false, flipY: false })
+      previews.push({ id: String(index), name: file.name, previewUrl: URL.createObjectURL(source), width: image.width, height: image.height, sizeKb: Math.max(1, Math.round(file.size / 1024)), cropX: 50, cropY: 50, cropScale: 1, originalWidth: image.width, originalHeight: image.height, rotation: 0, flipX: false, flipY: false })
     }
     resizePreviews.value = previews
     published = true
+    decodedFiles = decoded
     resizeFiles.value = files
     setStatus(files.length ? 'Ready. Choose your output dimensions and filter.' : 'Ready')
   } catch (error) {
@@ -268,7 +293,7 @@ function outputSignature(image: ResizePreviewImage, settings = currentSettings()
 async function renderImageOutput(file: File, edit: ResizePreviewImage, settings: ImageResizeSettings, client: ProcessingClient, check: () => void) {
   validateImageResizeSettings(settings)
   check()
-  const image = await readImage(file)
+  const image = await readImage(decodedFiles[Number(edit.id)] || file)
   check()
   const oriented = document.createElement('canvas'), canvas = document.createElement('canvas')
   try {
@@ -414,6 +439,8 @@ async function resizeImages() {
 }
 onBeforeUnmount(() => {
   disposed = true
+  cancelDecode?.()
+  decodedFiles = []
   stopPreviewWork()
   clearOutputPreviews()
   generation++
@@ -428,12 +455,13 @@ onBeforeUnmount(() => {
     <h2 class="module-title text-2xl font-bold">Resize Images</h2>
     <p class="mt-2 text-sm text-slate-600">Upload one or more images, review previews, then export resized files.</p>
     <p class="mt-1 text-xs text-slate-500">Up to 32 images, 12 megapixels and 32 MB each; 128 MB per batch.</p>
+    <p class="mt-1 text-xs text-slate-500">JPEG, PNG, WebP, GIF, AVIF, HEIC/HEIF, TIFF, camera RAW (DNG, CR2/CR3, NEF, ARW and more), PSD, JXL and other photo formats. Decoded locally; camera/codec support varies. Animated and multi-page inputs use the first frame. Export as PNG, JPG or WebP.</p>
     <p class="status-pill mt-3" role="status" aria-live="polite">{{ status }}</p>
 
     <div class="mt-5 grid gap-4 md:grid-cols-2">
       <label class="rounded-2xl bg-white/70 p-4">
         <span class="mb-2 block text-sm font-semibold">Input Images</span>
-        <input type="file" accept="image/*" multiple class="field-control" :disabled="resizeBusy || resizeLoading" @change="onResizeFilesChange" >
+        <input type="file" :accept="PHOTO_ACCEPT" multiple class="field-control" :disabled="resizeBusy || resizeLoading" @change="onResizeFilesChange" >
       </label>
       <fieldset class="grid gap-3 rounded-2xl bg-white/70 p-4 sm:grid-cols-2" :disabled="resizeBusy || resizeLoading">
         <label class="text-sm font-semibold sm:col-span-2">
@@ -470,7 +498,7 @@ onBeforeUnmount(() => {
         <label class="text-sm font-semibold">
           Output Format
           <select v-model="resizeFormat" class="field-control mt-1">
-            <option value="original">Original</option>
+            <option value="original">Original (PNG for other formats)</option>
             <option value="png">PNG</option>
             <option value="jpg">JPG</option>
             <option value="webp">WEBP</option>
@@ -489,7 +517,7 @@ onBeforeUnmount(() => {
           Resampling filter
           <select v-model="resizeMethod" class="field-control mt-1">
             <option value="standard">Standard</option>
-            <option value="lanczos">Lanczos</option>
+            <option value="lanczos">Lanczos (Rust WASM)</option>
           </select>
           <span class="mt-1 block text-xs font-normal text-slate-600">Lanczos uses a consistent filter for fine detail and may take longer.</span>
         </label>
