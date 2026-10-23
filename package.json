@@ -52,7 +52,7 @@
     "@electric-sql/pglite": "^0.5.10",
     "@nuxtjs/tailwindcss": "^6.14.0",
     "nuxt": "^4.4.2",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vue-tsc": "^3.3.13"
   },
   "engines": {
