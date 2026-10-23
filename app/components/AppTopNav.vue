@@ -22,6 +22,7 @@ const toolLinks = [
   { label: 'PDF Extract', to: '/pdf-image-extractor' },
   { label: 'Read Document', to: '/document-field-extractor' },
   { label: 'Resize', to: '/image-resize' },
+  { label: 'Image Converter', to: '/image-converter' },
   { label: 'E-Sign', to: '/e-signature' },
   { label: 'Watermark', to: '/watermark' },
   { label: 'Image Object Remover', to: '/image-object-remover' }

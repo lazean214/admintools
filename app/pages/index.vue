@@ -78,6 +78,13 @@ const baseModules = [
     icon: 'M9 12h6m-6 4h6M9 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V9l-6-6H9zm4 0v6h6'
   },
   {
+    title: 'Image Converter',
+    description: 'Convert HEIC, RAW and other photos to JPG, PNG, WebP, TIFF, BMP or ICO locally.',
+    path: '/image-converter',
+    action: 'Open Converter',
+    icon: 'M4 7h16m0 0-4-4m4 4-4 4M20 17H4m0 0 4-4m-4 4 4 4'
+  },
+  {
     title: 'Image Resize',
     description: 'Resize one or many images while keeping aspect ratio and previewing files first.',
     path: '/image-resize',
@@ -120,7 +127,7 @@ const categories = ['All tools', 'Real estate forms', 'PDF tools', 'Image & sign
 const groups = [
   { title: 'Real estate forms', description: 'Prepare the paperwork for your next transaction.', paths: ['/agent-to-agent-form', '/listing-noc-form', '/ejari-form'] },
   { title: 'PDF tools', description: 'Edit, compress, and get more from your documents.', paths: ['/pdf-editor', '/pdf-compression', '/pdf-image-extractor', '/document-field-extractor'] },
-  { title: 'Image & signature', description: 'Get your photos and signatures ready to use.', paths: ['/image-resize', '/e-signature', '/watermark', '/image-object-remover'] }
+  { title: 'Image & signature', description: 'Get your photos and signatures ready to use.', paths: ['/image-converter', '/image-resize', '/e-signature', '/watermark', '/image-object-remover'] }
 ]
 const visibleGroups = computed(() => groups
   .filter(group => activeCategory.value === 'All tools' || activeCategory.value === group.title)
