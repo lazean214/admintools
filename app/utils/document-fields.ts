@@ -148,6 +148,7 @@ export function extractDocumentFields(text: string, kind: DocumentKind = 'auto')
         const number = value.match(/^784[-\s]?\d{4}[-\s]?\d{7}[-\s]?\d(?!\d)/) ?? value.match(/^\d{6,12}\b/)
         if (number) value = number[0]
       }
+      if (['emiratesId', 'tenantEmiratesId', 'lessorEmiratesId'].includes(field.key) && !/\d/.test(value)) continue
       if (isDocumentPlaceholder(value, /Aed$/.test(field.key)) || value.length > 300 || /[:=|]/.test(value) || boundary(value)) continue
       // A known label appearing in a value without a clear column boundary is ambiguous.
       if (definitions.some(other => new RegExp(`\\b${labelPattern(other.alias)}[.]?(?:\\s*[:=|]|\\s{2,}|$)`, 'i').test(value))) continue
@@ -165,6 +166,35 @@ export function extractDocumentFields(text: string, kind: DocumentKind = 'auto')
     if (key === 'emiratesId') value = formatEmiratesId(value)
     if (!value || results.some(field => field.key === key && field.value === value)) return
     results.push({ key, label: documentFieldDefinitions.find(field => field.key === key)!.label, value, source, selected: false, warning })
+  }
+  if ((kind === 'auto' ? detectDocumentKind(text) : kind) === 'emirates-id') {
+    // Printed Name labels can lose their colon or be split into separate letters.
+    for (let i = 0; i < lines.length; i++) {
+      const match = lines[i]!.match(/^(?:full\s+)?n\s*a\s*m\s*e\b\s*[:.\-]?\s*(.*)$/i)
+      if (!match) continue
+      const namePart = (value: string) => /^[\p{Script=Latin}\p{M}][\p{Script=Latin}\p{M} .'-]*$/u.test(value) && !boundary(value)
+        && !/^(?:united arab emirates|identity card|resident identity card|federal authority|signature|card holder|emirates id)$/i.test(value)
+      const parts: string[] = []
+      let end = i
+      const inline = cleanValue(match[1]!)
+      if (inline) {
+        if (!namePart(inline)) continue
+        parts.push(inline)
+      }
+      for (let next = i + 1; next <= Math.min(i + 3, lines.length - 1); next++) {
+        const candidate = cleanValue(lines[next]!)
+        if (!candidate && /[\u0600-\u06ff]/.test(sourceLines[next]!)) { end = next; continue }
+        if (!namePart(candidate)) break
+        parts.push(candidate); end = next
+      }
+      const name = parts.join(' ')
+      if (!name || name.length > 150 || name.split(/\s+/).length < 2) continue
+      for (let index = results.length - 1; index >= 0; index--) {
+        const field = results[index]!
+        if (field.key === 'fullName' && field.source === sourceLines[i] && name.startsWith(field.value)) results.splice(index, 1)
+      }
+      add('fullName', name, sourceLines.slice(i, end + 1).join('\n'), 'Check the full name and spelling against the card.')
+    }
   }
   if (kind === 'auto' || kind === 'passport' || kind === 'emirates-id') {
     for (const value of parseDocumentMrz(text)) add(value.key, value.value, value.source, value.warning)

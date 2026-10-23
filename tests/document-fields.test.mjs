@@ -3,6 +3,20 @@ import assert from 'node:assert/strict'
 import { extractDocumentFields, reviewedDocumentFields, fieldsForEjari, detectDocumentKind } from '../app/utils/document-fields.ts'
 import { parseDocumentMrz, mrzCheckDigit } from '../app/utils/document-mrz.ts'
 
+test('Emirates ID printed name survives a missing colon, spaced label and wrapped name', () => {
+  for (const printed of ['Name JANE EXAMPLE', 'N a m e : JANE\nEXAMPLE', 'Name\nالاسم\nJANE EXAMPLE', 'Name: JANE\nEXAMPLE']) {
+    const fields = extractDocumentFields(`EMIRATES ID\n${printed}\nNationality: Example nationality\nDate of Birth: 1990-04-23`)
+    const names = fields.filter(field => field.key === 'fullName')
+    assert.equal(names.length, 1, printed)
+    assert.equal(names[0].value, 'JANE EXAMPLE', printed)
+    assert.ok(names[0].source.includes('Name') || names[0].source.includes('N a m e'))
+    assert.equal(names[0].selected, false)
+    assert.equal(fields.some(field => field.key === 'emiratesId'), false, 'card heading must not consume a name as its number')
+  }
+  assert.equal(extractDocumentFields('EMIRATES ID\nJANE EXAMPLE\nNationality: Example').some(field => field.key === 'fullName'), false)
+  assert.equal(extractDocumentFields('EMIRATES ID\nName\nNationality\nExample nationality').some(field => field.key === 'fullName'), false)
+})
+
 test('extracts labeled values and their source without guessing unlabeled names', () => {
   const fields = extractDocumentFields('TENANT NAME: Jane Example\nAnnual rent: AED 80,000\nBuilding name\nExample Tower\nJohn Unlabeled')
   assert.deepEqual(fields.map(f => [f.key, f.value]), [['tenantName','Jane Example'],['annualRentAed','AED 80,000'],['buildingName','Example Tower']])

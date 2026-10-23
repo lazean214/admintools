@@ -4,6 +4,8 @@ Entries are listed newest first. Historical milestones are based on repository h
 
 ## Unreleased
 
+- Fixed Emirates ID printed-name extraction when OCR omits the colon, spaces the Name label or wraps the name onto another line; retained the original excerpt for review.
+
 ### 2026-10-22 - Identity and title-deed result cleanup
 
 - Grouped Emirates ID identity/card details and title-deed ownership/property/area/deed details.
