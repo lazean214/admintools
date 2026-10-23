@@ -29,3 +29,18 @@ because the user specified a separate module and a concrete workflow reference.
 
 FINISH: Verify HEIC against a real test photo, batch partial failure, cancellation,
 output format signatures and dimensions, mobile/desktop layout and type checks.
+
+## Finish review
+
+Verdict: passed. Browser verification covered a real HEIC to JPG conversion,
+the downloaded ZIP's JPEG signature, and a mixed batch where a damaged HEIC
+fails independently while the successful result remains downloadable.
+Desktop and mobile screenshots showed no horizontal overflow. The mobile
+controls stack below the drop target. Production build, application type check
+and all 39 processing tests passed. Automated tests cover every output format,
+alpha handling, metadata removal, dimensions, cancellation and safe output names.
+
+The original sewing-threads.heic was not supplied; the decoder resource bug was
+reproduced and fixed using the upstream libheif HEIC example instead. Retained
+limits: converter 50 megapixels, resizer 12 megapixels. HEIC is input-only.
+Verification screenshot: tmp/photo-tests/image-converter.jpg (development-only).
