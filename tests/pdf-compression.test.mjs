@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { randomBytes } from 'node:crypto'
 import { readFile, mkdir, writeFile } from 'node:fs/promises'
+import { deflateSync } from 'node:zlib'
 import { PDFDocument, PDFName, PDFRawStream, StandardFonts } from 'pdf-lib'
 import init, { PdfEditorDocument } from '../app/wasm/ejari/admintools_ejari.js'
 import { compressPdf, validatePdfCompressionInput, MAX_COMPRESSION_BYTES } from '../app/utils/pdf-compression.ts'
@@ -26,8 +28,12 @@ async function fixture(withImage = false) {
   return pdf
 }
 
-test('lossless compression reduces size while retaining text, form values, metadata and page geometry', async () => {
+test('compression removes document metadata while retaining text, form values and page geometry', async () => {
   const pdf = await fixture()
+  pdf.setAuthor('Private Author')
+  pdf.setSubject('Private Subject')
+  const xmp = pdf.context.register(pdf.context.stream(new TextEncoder().encode('<x:xmpmeta>Private XMP metadata</x:xmpmeta>')))
+  pdf.catalog.set(n('Metadata'), xmp)
   const source = await pdf.save({ useObjectStreams: false })
   const progress = []
   const result = await compressPdf(source, 'lossless', undefined, (message) => progress.push(message))
@@ -36,8 +42,13 @@ test('lossless compression reduces size while retaining text, form values, metad
   assert.equal(result.pages, 1)
   assert.ok(result.streamsCompressed >= 1)
   assert.equal(result.imagesCompressed, 0)
-  const reopened = await PDFDocument.load(result.bytes)
-  assert.equal(reopened.getTitle(), 'Compression regression fixture')
+  const reopened = await PDFDocument.load(result.bytes, { updateMetadata: false })
+  assert.equal(reopened.context.trailerInfo.Info, undefined)
+  assert.equal(reopened.getTitle(), undefined)
+  assert.equal(reopened.getAuthor(), undefined)
+  assert.equal(reopened.getSubject(), undefined)
+  assert.equal(reopened.catalog.has(n('Metadata')), false)
+  assert.equal(reopened.context.enumerateIndirectObjects().some(([, object]) => object instanceof PDFRawStream && new TextDecoder().decode(object.contents).includes('Private XMP metadata')), false)
   assert.equal(reopened.getForm().getTextField('reference').getText(), 'FORM-123')
   assert.equal(reopened.getPage(0).getWidth(), 600)
   assert.equal(reopened.getPage(0).getHeight(), 800)
@@ -101,6 +112,145 @@ test('JPEG recompression replaces supported image streams without rasterizing th
   assert.deepEqual(images[0].contents, jpeg)
   await writeFile(new URL('../tmp/pdfs/compression-photo-original.pdf', import.meta.url), source)
   await writeFile(new URL('../tmp/pdfs/compression-photo-result.pdf', import.meta.url), result.bytes)
+})
+
+test('maximum compression targets 80 DPI placement and preserves PDF pages and text', async () => {
+  const pdf = await fixture(true)
+  const probe = await PDFDocument.create()
+  const imageDimensions = await probe.embedJpg(jpeg)
+  const imageTargets = new Map([[`${imageDimensions.width}x${imageDimensions.height}`, 700]])
+  await pdf.flush()
+  for (const [ref, stream] of pdf.context.enumerateIndirectObjects()) {
+    if (stream instanceof PDFRawStream && stream.dict.get(n('Filter')) === n('DCTDecode')) {
+      const padded = new Uint8Array(stream.contents.length + 50000)
+      padded.set(stream.contents)
+      pdf.context.assign(ref, PDFRawStream.of(stream.dict.clone(pdf.context), padded))
+    }
+  }
+  const source = await pdf.save({ useObjectStreams: false })
+  const result = await compressPdf(source, 'maximum', async (input) => {
+    assert.equal(input.quality, 0.5)
+    assert.equal(input.maxSide, 700)
+    return { bytes: jpeg, width: input.width, height: input.height }
+  }, undefined, imageTargets)
+  assert.ok(result.bytes.length < source.length)
+  assert.equal(result.imagesCompressed, 1)
+  const reopened = await PDFDocument.load(result.bytes)
+  assert.equal(reopened.getPageCount(), 1)
+  assert.equal(reopened.getForm().getTextField('reference').getText(), 'FORM-123')
+  const text = new PdfEditorDocument(result.bytes)
+  try { assert.ok(JSON.parse(text.inspect(0)).texts.some((run) => run.text === 'Selectable original text')) } finally { text.free() }
+})
+
+test('custom compression applies the selected image quality and placement-based DPI target', async () => {
+  const pdf = await fixture(true)
+  const source = await pdf.save()
+  const dimensions = await pdf.embedJpg(jpeg)
+  const imageTargets = new Map([[`${dimensions.width}x${dimensions.height}`, 675]])
+  let calls = 0
+  await compressPdf(source, 'custom', async (input) => {
+    calls++
+    assert.equal(input.quality, 0.65)
+    assert.equal(input.maxSide, 675)
+    return { bytes: jpeg, width: input.width, height: input.height }
+  }, undefined, imageTargets, { quality: 65, dpi: 90 })
+  assert.equal(calls, 1)
+  await assert.rejects(compressPdf(source, 'custom', undefined, undefined, undefined, { quality: 5, dpi: 90 }), /quality from 10%/)
+  await assert.rejects(compressPdf(source, 'custom', undefined, undefined, undefined, { quality: 50, dpi: 301 }), /resolution from 75 to 300 DPI/)
+})
+
+test('all supported images across multiple pages are recompressed', async () => {
+  const pdf = await PDFDocument.create()
+  for (let pageIndex = 0; pageIndex < 2; pageIndex++) {
+    const page = pdf.addPage([600, 800])
+    for (let imageIndex = 0; imageIndex < (pageIndex ? 1 : 2); imageIndex++) {
+      const image = await pdf.embedJpg(jpeg)
+      page.drawImage(image, { x: 30 + imageIndex * 100, y: 120, width: 80, height: 80 })
+    }
+  }
+  await pdf.flush()
+  for (const [ref, stream] of pdf.context.enumerateIndirectObjects()) {
+    if (stream instanceof PDFRawStream && stream.dict.get(n('Filter')) === n('DCTDecode')) {
+      const padded = new Uint8Array(stream.contents.length + 50000)
+      padded.set(stream.contents)
+      pdf.context.assign(ref, PDFRawStream.of(stream.dict.clone(pdf.context), padded))
+    }
+  }
+  const source = await pdf.save({ useObjectStreams: false })
+  let calls = 0
+  const result = await compressPdf(source, 'small', async (input) => {
+    calls++
+    assert.equal(input.format, 'jpeg')
+    assert.equal(input.components, 3)
+    return { bytes: jpeg, width: input.width, height: input.height }
+  })
+  assert.equal(calls, 3)
+  assert.equal(result.pages, 2)
+  assert.equal(result.imagesCompressed, 3)
+  const reopened = await PDFDocument.load(result.bytes)
+  assert.equal(reopened.getPageCount(), 2)
+  assert.equal(reopened.context.enumerateIndirectObjects().filter(([, object]) => object instanceof PDFRawStream && object.dict.get(n('Subtype')) === n('Image')).length, 3)
+})
+
+test('JPEG, opaque Flate and grayscale pixel images are converted to RGB JPEG streams', async () => {
+  const pdf = await PDFDocument.create()
+  const embedded = await pdf.embedJpg(jpeg)
+  const width = embedded.width, height = embedded.height
+  const page = pdf.addPage([600, 800])
+  const addImage = (colorSpace, components, format) => {
+    const pixels = randomBytes(width * height * components)
+    const dict = pdf.context.obj({
+      Type: 'XObject', Subtype: 'Image', Width: width, Height: height,
+      ColorSpace: colorSpace, BitsPerComponent: 8,
+      ...(format === 'flate' ? { Filter: 'FlateDecode' } : {}),
+    })
+    const data = format === 'flate' ? deflateSync(pixels) : pixels
+    const ref = pdf.context.register(PDFRawStream.of(dict, new Uint8Array(data)))
+    const key = page.node.newXObject('Image', ref)
+    const content = pdf.context.register(pdf.context.stream(`q 100 0 0 100 20 20 cm ${key} Do Q`))
+    page.node.addContentStream(content)
+  }
+  addImage('DeviceRGB', 3, 'flate')
+  addImage('DeviceGray', 1, 'raw')
+  const source = await pdf.save({ useObjectStreams: false })
+  const inputs = []
+  const result = await compressPdf(source, 'balanced', async (input) => {
+    inputs.push(input)
+    return { bytes: jpeg, width: input.width, height: input.height }
+  })
+  assert.deepEqual(inputs.map(({ format, components }) => [format, components]), [['jpeg', 3], ['flate', 3], ['raw', 1]])
+  assert.equal(result.imagesCompressed, 2)
+  const reopened = await PDFDocument.load(result.bytes)
+  const images = reopened.context.enumerateIndirectObjects().map(([, object]) => object)
+    .filter((object) => object instanceof PDFRawStream && object.dict.get(n('Subtype')) === n('Image'))
+  assert.equal(images.length, 3)
+  assert.ok(images.every((image) => image.dict.get(n('ColorSpace')) === n('DeviceRGB')))
+  assert.ok(images.every((image) => image.dict.get(n('Filter')) === n('DCTDecode')))
+})
+
+test('DeviceCMYK JPEG images are eligible for browser recompression', async () => {
+  const pdf = await fixture(true)
+  await pdf.flush()
+  for (const [ref, stream] of pdf.context.enumerateIndirectObjects()) {
+    if (stream instanceof PDFRawStream && stream.dict.get(n('Subtype')) === n('Image')) {
+      stream.dict.set(n('ColorSpace'), n('DeviceCMYK'))
+      const padded = new Uint8Array(stream.contents.length + 50000)
+      padded.set(stream.contents)
+      pdf.context.assign(ref, PDFRawStream.of(stream.dict.clone(pdf.context), padded))
+    }
+  }
+  const source = await pdf.save()
+  let components = 0
+  const result = await compressPdf(source, 'small', async (input) => {
+    components = input.components
+    return { bytes: jpeg, width: input.width, height: input.height }
+  })
+  assert.equal(components, 4)
+  const reopened = await PDFDocument.load(result.bytes)
+  const image = reopened.context.enumerateIndirectObjects()
+    .map(([, object]) => object)
+    .find((object) => object instanceof PDFRawStream && object.dict.get(n('Subtype')) === n('Image'))
+  assert.equal(image.dict.get(n('ColorSpace')), n('DeviceRGB'))
 })
 
 test('lossless mode never reencodes images; unsupported masks and encoder failures keep images intact', async () => {
