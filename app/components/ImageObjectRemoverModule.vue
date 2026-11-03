@@ -15,6 +15,11 @@ const maskCanvas = ref<HTMLCanvasElement | null>(null)
 const removePreview = ref('')
 const selecting = ref(false)
 const brushSize = ref(28)
+const brushCursor = computed(() => {
+  const size = Math.max(8, brushSize.value)
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><circle cx="${size / 2}" cy="${size / 2}" r="${size / 2}" fill="rgba(239,68,68,0.5)"/></svg>`
+  return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}") ${size / 2} ${size / 2}, crosshair`
+})
 const engine = ref<'ai' | 'texture'>('ai')
 const selectionMode = ref<'brush' | 'rect' | 'erase' | 'smart'>('brush')
 let selectStartX = 0
@@ -570,9 +575,10 @@ async function downloadRemovedResult() {
         aria-label="Image editing area. In Smart select mode, click an object or press Enter to select the center."
         @keydown.enter.prevent="selectionMode === 'smart' && removeCanvas && selectObject({ x: removeCanvas.width / 2, y: removeCanvas.height / 2 })"
         class="mx-auto max-h-[520px] max-w-full touch-none"
+        :style="selectionMode === 'brush' || selectionMode === 'erase' ? { cursor: brushCursor } : {}"
         :class="[
           processing ? 'pointer-events-none opacity-50' : '',
-          selectionMode === 'brush' ? 'cursor-[url(\'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2224%22 height=%2224%22><circle cx=%2212%22 cy=%2212%22 r=%2210%22 fill=%22none%22 stroke=%22%23ef4444%22 stroke-width=%222%22/></svg>\')_12_12,_crosshair]' : 'cursor-crosshair'
+          selectionMode === 'brush' || selectionMode === 'erase' ? '' : 'cursor-crosshair'
         ]"
         @pointerdown="startSelect"
         @pointermove="moveSelect"
