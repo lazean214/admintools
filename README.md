@@ -1,6 +1,20 @@
-# AdminTools - Real Estate Web Tools
+# AdminTools — Real-Estate Docs Suite (Nuxt 4 + Rust/WASM + Supabase)
+
+> Live: https://admintools.vercel.app/ — private tools for Emirates ID, title-deed, EJARI/NOC workflows, in-browser PDF/OCR/image editing. Rust/WASM in browser workers (no upload), Supabase-backed auth + guide.
+
+[![Live demo](https://img.shields.io/badge/Live%20demo-admintools.vercel.app-2ea44f)](https://admintools.vercel.app/)
+[![Stack: Nuxt 4](https://img.shields.io/badge/stack-Nuxt%204%20%7C%20Rust%2FWASM%20%7C%20Supabase-00DC82)](package.json)
+[![GitHub](https://img.shields.io/badge/GitHub-lazean214%2Fadmintools-lightgrey)](https://github.com/lazean214/admintools)
+
+Flagship portfolio app. Dubai real-estate document suite used for Emirates ID / title-deed extraction, EJARI templates, PDF editing with local OCR, image object removal — all processing in-browser, Supabase for accounts/guide.
 
 [Live application](https://admintools.vercel.app/) · [GitHub repository](https://github.com/lazean214/admintools) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md)
+
+## Screenshots
+
+![AdminTools docs screenshot](image.png)
+
+Live at https://admintools.vercel.app/ — add captures of `/pdf-editor` and `/image-object-remover` alongside this image.
 
 Nuxt 4 tools for real estate documents, PDF editing, local OCR, images and a role-based article guide. Rust/WASM handles document and image processing in browser workers; authentication and stored content use server-side Supabase access.
 
