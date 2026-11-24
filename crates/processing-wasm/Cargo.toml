@@ -8,7 +8,7 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-fast_image_resize = "=6.1.0"
+fast_image_resize = "=6.2.0"
 miniz_oxide = "=0.8.9"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
