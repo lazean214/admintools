@@ -206,3 +206,9 @@ The shared production limiter enforces 30 login attempts per 15 minutes and 10 r
 `/agent-to-agent-form`, `/listing-noc-form`, `/ejari-form`, `/pdf-editor`, `/pdf-compression`, `/pdf-image-extractor`, `/document-field-extractor`, `/image-resize`, `/e-signature`, `/watermark`, `/image-object-remover`, `/real-estate-guide`, `/profile-settings`, `/login`, `/register`, `/contact`.
 
 Protected operations are enforced by API authorization, not only page middleware. Sessions use HttpOnly, SameSite=Lax cookies with Secure enabled in production. Authentication JSON bodies have a 32 KiB limit and a 10-second read deadline.
+
+
+## Links
+
+- Repository: https://github.com/lazean214/admintools
+- Live demo: https://admintools.vercel.app/
